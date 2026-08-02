@@ -19,17 +19,29 @@ all 5 apps already — this is what's left, not a redesign:
       spin up an ephemeral kind cluster, `kind load docker-image`, `helm
       install` with `values-kind.yaml`, curl the Ingress-routed hostname).
       Checks out `mfe-pot-platform` as a sibling directory in the same job so
-      each chart's `file://` library-chart dependency resolves — works with
-      no extra secret since that repo is public. **Not yet run for real** (no
-      PR/push has triggered it yet) — worth a first real run to confirm two
-      untested assumptions: that `GITHUB_TOKEN`'s default `packages: read`
-      permission is actually enough to install `@tn4consulting/shared-*` from
-      GitHub Packages in each repo's CI (the plan doc flagged this as
-      "should be low-friction, but worth confirming"), and that
-      `mfe-pot-job-bank` being **private** (unlike the other 4, which are
-      public) doesn't need anything extra for its own workflow to check out
-      its own already-authenticated repo plus the public `mfe-pot-platform`
-      sibling.
+      each chart's `file://` library-chart dependency resolves. **Verified
+      green end-to-end on all 5 repos**, after fixing four real issues found
+      by actually running it (not caught by local validation, since local
+      testing never exercised a fresh GITHUB_TOKEN or a from-scratch kind
+      cluster):
+      1. The 8 `@tn4consulting/shared-*` packages published with no
+         `repository` field, so GitHub Packages left them unlinked at the
+         org level — no repo's `GITHUB_TOKEN` could read them (403). Fixed
+         by adding the link and republishing at new patch versions.
+      2. Linking to `mfe-pot-platform` alone wasn't enough — a package
+         linked to one repo doesn't auto-grant token access to *other*
+         repos' workflows. Fixed by making the packages public (your call,
+         via the GitHub web UI — not scriptable).
+      3. `helm/kind-action` defaults to a cluster named `chart-testing`, not
+         `kind`, so the bare `kind load docker-image` calls (which target
+         kind's own default cluster name) failed. Fixed with an explicit
+         `cluster_name: kind` input.
+      4. `helm install --wait` only waits for the pod, not for
+         `ingress-nginx`'s own reconciliation of the new Ingress resource —
+         the verify curl right after install failed outright. Fixed with a
+         short retry-poll before asserting.
+      `mfe-pot-job-bank` being private (unlike the other 4 public app repos)
+      needed nothing extra in practice.
 - [ ] Phase 2 — rewire `mfe-pot-platform/apps/mfe-e2e`'s `playwright.config.ts`
       `webServer` array: today it only starts `client-profile-service`. Needs
       each of the 5 sibling app repos' `nx serve` pointed at from their
