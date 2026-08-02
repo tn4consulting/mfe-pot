@@ -32,7 +32,7 @@ None of these are git submodules — they're independent sibling clones, each wi
 }
 ```
 
-**Not yet wired into the app repos** — deferred, same as before the consolidation. The old `mfe-pot-renovate` GitHub repo has been deleted.
+**Wired into all 6 app repos** — each carries a `renovate.json` extending `github>tn4consulting/mfe-pot`. The old `mfe-pot-renovate` GitHub repo has been deleted.
 
 ## Cross-repo mechanics worth knowing
 
