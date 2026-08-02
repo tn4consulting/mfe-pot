@@ -1,0 +1,12 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "groupName": "Angular toolchain",
+      "description": "@angular/*, @angular-devkit/*, @schematics/angular, and listr2 must move together — mirrors the pnpm.overrides block each mfe-pot app repo carries to keep every copy of these packages at one exact version. A partial bump here reproduces the duplicate-version problem the overrides block exists to prevent.",
+      "matchPackageNames": ["@angular/*", "@angular-devkit/*", "@schematics/angular", "listr2"],
+      "rangeStrategy": "pin"
+    }
+  ]
+}
