@@ -14,10 +14,22 @@ don't let this drift into a stale wishlist.
 The Docker-image + Helm-chart pattern is proven and validated on `kind` for
 all 5 apps already — this is what's left, not a redesign:
 
-- [ ] Per-app-repo CI: no repo has `.github/workflows/` yet. Each needs
-      lint/test/build + the kind-based validation stage (spin up an ephemeral
-      kind cluster in CI, `kind load docker-image`, `helm install` with
-      `values-kind.yaml`, curl the Ingress-routed hostname).
+- [x] Per-app-repo CI: `.github/workflows/ci.yml` added to all 5 app repos —
+      lint/test/build, then the kind-based validation stage (build image(s),
+      spin up an ephemeral kind cluster, `kind load docker-image`, `helm
+      install` with `values-kind.yaml`, curl the Ingress-routed hostname).
+      Checks out `mfe-pot-platform` as a sibling directory in the same job so
+      each chart's `file://` library-chart dependency resolves — works with
+      no extra secret since that repo is public. **Not yet run for real** (no
+      PR/push has triggered it yet) — worth a first real run to confirm two
+      untested assumptions: that `GITHUB_TOKEN`'s default `packages: read`
+      permission is actually enough to install `@tn4consulting/shared-*` from
+      GitHub Packages in each repo's CI (the plan doc flagged this as
+      "should be low-friction, but worth confirming"), and that
+      `mfe-pot-job-bank` being **private** (unlike the other 4, which are
+      public) doesn't need anything extra for its own workflow to check out
+      its own already-authenticated repo plus the public `mfe-pot-platform`
+      sibling.
 - [ ] Phase 2 — rewire `mfe-pot-platform/apps/mfe-e2e`'s `playwright.config.ts`
       `webServer` array: today it only starts `client-profile-service`. Needs
       each of the 5 sibling app repos' `nx serve` pointed at from their
