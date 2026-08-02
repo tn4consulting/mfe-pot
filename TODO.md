@@ -14,34 +14,6 @@ don't let this drift into a stale wishlist.
 The Docker-image + Helm-chart pattern is proven and validated on `kind` for
 all 5 apps already — this is what's left, not a redesign:
 
-- [x] Per-app-repo CI: `.github/workflows/ci.yml` added to all 5 app repos —
-      lint/test/build, then the kind-based validation stage (build image(s),
-      spin up an ephemeral kind cluster, `kind load docker-image`, `helm
-      install` with `values-kind.yaml`, curl the Ingress-routed hostname).
-      Checks out `mfe-pot-platform` as a sibling directory in the same job so
-      each chart's `file://` library-chart dependency resolves. **Verified
-      green end-to-end on all 5 repos**, after fixing four real issues found
-      by actually running it (not caught by local validation, since local
-      testing never exercised a fresh GITHUB_TOKEN or a from-scratch kind
-      cluster):
-      1. The 8 `@tn4consulting/shared-*` packages published with no
-         `repository` field, so GitHub Packages left them unlinked at the
-         org level — no repo's `GITHUB_TOKEN` could read them (403). Fixed
-         by adding the link and republishing at new patch versions.
-      2. Linking to `mfe-pot-platform` alone wasn't enough — a package
-         linked to one repo doesn't auto-grant token access to *other*
-         repos' workflows. Fixed by making the packages public (your call,
-         via the GitHub web UI — not scriptable).
-      3. `helm/kind-action` defaults to a cluster named `chart-testing`, not
-         `kind`, so the bare `kind load docker-image` calls (which target
-         kind's own default cluster name) failed. Fixed with an explicit
-         `cluster_name: kind` input.
-      4. `helm install --wait` only waits for the pod, not for
-         `ingress-nginx`'s own reconciliation of the new Ingress resource —
-         the verify curl right after install failed outright. Fixed with a
-         short retry-poll before asserting.
-      `mfe-pot-job-bank` being private (unlike the other 4 public app repos)
-      needed nothing extra in practice.
 - [ ] Phase 2 — rewire `mfe-pot-platform/apps/mfe-e2e`'s `playwright.config.ts`
       `webServer` array: today it only starts `client-profile-service`. Needs
       each of the 5 sibling app repos' `nx serve` pointed at from their
@@ -50,9 +22,6 @@ all 5 apps already — this is what's left, not a redesign:
       in `mfe-pot-platform`) to a registry as OCI artifacts — every app
       repo's `Chart.yaml` still references them via a sibling-checkout-relative
       `file://` path.
-- [ ] A Helm chart for Strapi (stays in `mfe-pot-platform`) — not built yet,
-      and deliberately not based on `mfe-backend-lib` (different shape, not
-      worth generalizing the library chart for one consumer).
 - [ ] AKS + ACR provisioning, then Stage 2 CI (push images to ACR, deploy to
       AKS) per app repo. Blocked on Azure resources not existing yet — see
       `mfe-pot-platform/docs/plans/20260801-1935-mfe-pot-polyrepo-split-and-k8s-hosting.md`'s
@@ -63,6 +32,12 @@ all 5 apps already — this is what's left, not a redesign:
       restarts. `mfe-e2e`'s golden-path test already works around this with
       loose assertions instead of exact counts, but a real reset endpoint
       would fix repeatable local/CI runs and live demos alike.
+- [ ] Each app repo's `tools/deploy-local.sh` hardcodes `CLUSTER_NAME=kind`,
+      but the actual local cluster is named `mfe-pot` (`kind-mfe-pot`
+      context) — discovered while redeploying `mfe-pot-dashboard` by hand.
+      Running the script as-is would try to create a second, duplicate
+      cluster and fail on the port 443 conflict. Fix by making the script
+      detect/accept the real cluster name instead of assuming `kind`.
 
 ## Demo narrative (proves the point, not just the pattern)
 
@@ -70,7 +45,7 @@ Not started. See `mfe-pot-platform/docs/plans/mfe-pot-initial-design.md`'s
 "Demo Narrative & Experience" section for the full specifics.
 
 - [ ] Siloed-mode toggle in `mfe-pot-shell` — disables the cross-service calls
-      `mfe-pot-employment-life-events`/`benefit-aggregation-bff` normally
+      `mfe-pot-employment-life-events`/`dashboard-bff` normally
       make, so the citizen re-enters details separately and sees three
       disconnected status pages. The "before" picture for the demo.
 - [ ] Live "tell us once" demo beat — address/bank details entered once in
@@ -103,18 +78,16 @@ Not started. See `mfe-pot-platform/docs/plans/mfe-pot-initial-design.md`'s
 
 ## Naming consistency
 
-- [ ] Rename `benefit-aggregation-bff` to `dashboard-bff` for consistency
+- [x] Rename `benefit-aggregation-bff` to `dashboard-bff` for consistency
       with the other BFFs' `<app-name>-bff` naming (`job-bank-bff`,
-      `employment-insurance-bff`). Lives in the `mfe-pot-dashboard` repo
-      today (`apps/benefit-aggregation-bff`) — touches that repo's `apps/`
-      folder name, its `project.json`/`package.json` name fields, port/env-var
-      references, and its `charts/dashboard` Helm chart (`values*.yaml`,
-      `backend.name`). Also touches cross-repo references: this repo's
-      `TODO.md` (this file), `mfe-pot-platform/docs/plans/mfe-pot-initial-design.md`
-      and `mfe-pot-platform/docs/plans/20260801-1935-mfe-pot-polyrepo-split-and-k8s-hosting.md`,
-      and `mfe-pot-platform/apps/mfe-e2e/playwright.config.ts` +
-      `src/golden-path.spec.ts` once Phase 2 e2e rewiring (above) points
-      those at the sibling repo.
+      `employment-insurance-bff`). Done: `mfe-pot-dashboard`'s `apps/`
+      folder, `project.json`/`package.json` name fields, port/env-var
+      references, and `charts/dashboard` Helm chart (`values*.yaml`,
+      `backend.name`) all updated, plus the cross-repo references this
+      item called out (`mfe-pot-platform/docs/plans/mfe-pot-initial-design.md`,
+      `mfe-pot-platform/docs/plans/20260801-1935-mfe-pot-polyrepo-split-and-k8s-hosting.md`,
+      `mfe-pot-platform/apps/mfe-e2e/playwright.config.ts` +
+      `src/golden-path.spec.ts` comments, and every repo's `CLAUDE.md`).
 
 ## Language support
 
@@ -214,7 +187,7 @@ once.
 - [ ] Benefit-application-status screen
       (`benefit-application-status.png`) — "My Active Programs" list
       (EI/CPP/CDCP status, summary, required action). Conceptually maps to
-      `benefit-aggregation-bff`'s cross-benefit overview, which doesn't exist
+      `dashboard-bff`'s cross-benefit overview, which doesn't exist
       as UI yet (the BFF's `/api/overview` endpoint exists; nothing renders
       it beyond the payment-history widget).
 - [ ] Have-a-representative / acting-on-behalf-of flow

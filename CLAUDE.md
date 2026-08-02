@@ -10,7 +10,7 @@ The project **finished its split** from a single Nx monorepo into 6 repos — al
 |---|---|
 | `mfe-pot-platform` | The **platform repo** (formerly `mfe-app`, since renamed to match its `package.json` name and GitHub remote). Home to `libs/shared/*` (published as `@tn4consulting/shared-*` packages), the `client-profile-service` BFF, the composed `mfe-e2e` suite, Strapi, `platform-versions.json` (cross-repo version-alignment source of truth), and the two Helm library charts. Has its own `CLAUDE.md` and `.claude/settings.json`. |
 | `mfe-pot-shell` | Host app, branded MSCA: app frame, GC header/footer, language switcher, mock sign-in, runtime federation manifest reader. No BFF. |
-| `mfe-pot-dashboard` | + `benefit-aggregation-bff`. Cross-benefit overview, payment history, correspondence. |
+| `mfe-pot-dashboard` | + `dashboard-bff`. Cross-benefit overview, payment history, correspondence. |
 | `mfe-pot-job-bank` | + `job-bank-bff`. Job search and apply. |
 | `mfe-pot-employment-insurance` | + `employment-insurance-bff`. EI application, claim status, reporting. |
 | `mfe-pot-employment-life-events` | Guided "you lost your job" journey stitching the other three apps together. No BFF. |
