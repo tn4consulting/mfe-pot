@@ -1,0 +1,29 @@
+{
+  "folders": [
+    {
+      "name": "mfe-pot-platform",
+      "path": "mfe-pot-platform"
+    },
+    {
+      "name": "mfe-pot-shell",
+      "path": "mfe-pot-shell"
+    },
+    {
+      "name": "mfe-pot-dashboard",
+      "path": "mfe-pot-dashboard"
+    },
+    {
+      "name": "mfe-pot-job-bank",
+      "path": "mfe-pot-job-bank"
+    },
+    {
+      "name": "mfe-pot-employment-insurance",
+      "path": "mfe-pot-employment-insurance"
+    },
+    {
+      "name": "mfe-pot-employment-life-events",
+      "path": "mfe-pot-employment-life-events"
+    }
+  ],
+  "settings": {}
+}
