@@ -268,15 +268,18 @@ once.
       of the existing `libs/shared/ui-gcds` (ng-packagr, its own publish
       step in `publish-shared-packages.yml`).
 - [x] Multi-column list component (e.g. a list of tasks or documents) —
-      `ScdsMultiColumnList<T>`: typed `items`/`columns` array (with an
-      optional per-column `TemplateRef` escape hatch), real `<ul role="list">`
-      /`<li role="listitem">` markup, CSS Grid columns collapsing to
-      stacked "label: value" rows at GCDS's own 48em breakpoint, each
-      cell's column header always present as real (not CSS-generated)
-      text for assistive tech. `mfe-pot-dashboard`'s `dashboard-tasks-list`
-      is the first real consumer (single-column today, since
-      `dashboard-bff`'s task model is still plain strings — a richer
-      `{title, dueDate}` task shape is a possible follow-up, not done here).
+      `ScdsMultiColumnList`: `items`/`columns` array (`cell: (item:
+      unknown) => string` per column — the original Angular-only
+      `TemplateRef` escape hatch was dropped in the later Stencil rewrite,
+      see below, since there's no cross-framework equivalent and no real
+      consumer needed it), real `<ul role="list">`/`<li role="listitem">`
+      markup, CSS Grid columns collapsing to stacked "label: value" rows at
+      GCDS's own 48em breakpoint, each cell's column header always present
+      as real (not CSS-generated) text for assistive tech.
+      `mfe-pot-dashboard`'s `dashboard-tasks-list` is the first real
+      consumer (single-column today, since `dashboard-bff`'s task model is
+      still plain strings — a richer `{title, dueDate}` task shape is a
+      possible follow-up, not done here).
 - [x] Card component (e.g. dashboard widgets) — `ScdsCard`: composes
       alongside real `gcds-card` in "link" mode, but renders its own markup
       in a "static" (non-navigating) mode — a genuine GCDS gap: bare
@@ -320,12 +323,62 @@ once.
       (real screenshot: a clean multi-column job-postings table, zero
       console errors) — see the new bug immediately below for why it
       isn't yet verified through the shell.
-      **Not yet done**: regenerate `shared-ui-scds`'s Angular wrapper from
-      the new Stencil core (`libs/shared/ui-scds`'s hand-written
-      components still exist, not yet replaced), align
-      `shared-federation-config`'s pin across all 5 app repos to include
-      the new shared singleton, and adopt `ScdsCard` in
-      `mfe-pot-employment-insurance`'s 3 candidates.
+- [x] `shared-federation-config`'s pin aligned to `^0.4.0` (the new
+      `@tn4consulting/shared-ui-scds-core` singleton entry) across all 5 app
+      repos, not just the ones with SCDS changes this round — a drifted pin
+      here is exactly how federation singleton mismatches happen silently.
+- [x] Regenerated `shared-ui-scds`'s Angular wrapper from the Stencil core
+      via `@stencil/angular-output-target` (`outputType: 'standalone'`,
+      `customElementsDir: 'dist/components'` — the package deliberately has
+      no `exports` map, matching `@gcds-core/components`'s own layout, so
+      the generated proxy's import paths have to match the real physical
+      dist-custom-elements output location). Deleted the hand-written
+      `ScdsCard`/`ScdsMultiColumnList` Angular components entirely.
+      `@tn4consulting/shared-ui-scds-core` is a peerDependency (ng-packagr
+      won't publish non-peer deps), alongside `rxjs` (needed by the
+      generated proxy's output-binding helper). Published as
+      `@tn4consulting/shared-ui-scds@0.2.0`.
+      Two non-obvious build issues surfaced getting this to actually
+      compile: Nx's buildable-libraries support silently substitutes a
+      local-source path mapping for the *bare* `@tn4consulting/shared-ui-scds-core`
+      specifier (since it's itself an Nx project in this same workspace),
+      which resolves to a directory with no co-located `.d.ts` — fixed by
+      importing from the `/dist/components` subpath instead, same as the
+      generated proxy file already does. And any app statically importing
+      the regenerated wrapper (as opposed to job-bank's loader-based lazy
+      consumption) needs `@stencil/core` as a **real** dependency, since
+      the dist-custom-elements output deliberately externalizes
+      `@stencil/core/internal/client` rather than bundling it — plus
+      `@stencil` added to each consuming repo's jest
+      `transformIgnorePatterns` allowlist (same ESM-only-`.js` issue as
+      `@gcds-core`).
+      `mfe-pot-dashboard` migrated to `^0.2.0`: `<div scdsCardActions>` →
+      `<div slot="scdsCardActions">` (native slots match the `slot`
+      attribute, not an arbitrary attribute selector) and
+      `listLabelledBy="tasks-heading"` → `listLabel="My Tasks"` (an
+      ARIA IDREF can't cross a shadow boundary). `ScdsListColumn` also lost
+      its generic type parameter in the Stencil rewrite. Specs that
+      inspected `ScdsMultiColumnList`'s rendered rows now query through the
+      custom element's `shadowRoot` with a render-tick wait instead of the
+      host's plain `textContent`/`querySelector` — `ScdsCard`'s own specs
+      needed no such change, since its body/actions content stays in light
+      DOM (slotted), only `ScdsMultiColumnList`'s rows are shadow-rendered.
+      Redeployed to `kind` and reverified through the shell's `/dashboard`
+      route: both components still render correctly with real data, zero
+      new console errors.
+- [x] Adopted `ScdsCard` in `mfe-pot-employment-insurance`'s 3 candidates:
+      `feature-claims` (success tone for approved claims),
+      `feature-reporting-status` (replaced the hand-rolled `.status-pill`
+      CSS, now deleted, with the tone badge — overdue → danger, due_soon →
+      warning, not_yet_due → no tone), and `feature-applications` (the
+      confirmation-state card; confirmed `role="status"` carries over onto
+      the custom element's host fine, since Stencil doesn't strip
+      unrecognized attributes — verified against the real build rather
+      than assumed). Same repo also had the `CLUSTER_NAME=kind`
+      `deploy-local.sh` bug (see above), fixed here too. Redeployed to
+      `kind` and verified live through the shell: claim status, the
+      EI-apply confirmation card, and their tone badges all render
+      correctly, zero new console errors.
 - [ ] **New bug found, unrelated to SCDS**: `mfe-pot-shell` fails to load
       `mfe-pot-job-bank` as a federated remote at all —
       `SyntaxError: The requested module 'blob:...' does not provide an
