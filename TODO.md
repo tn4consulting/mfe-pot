@@ -76,19 +76,6 @@ Not started. See `mfe-pot-platform/docs/plans/mfe-pot-initial-design.md`'s
       Transloco/locale-aware formatting yet. A prerequisite for the bilingual
       demo beat above.
 
-## Naming consistency
-
-- [x] Rename `benefit-aggregation-bff` to `dashboard-bff` for consistency
-      with the other BFFs' `<app-name>-bff` naming (`job-bank-bff`,
-      `employment-insurance-bff`). Done: `mfe-pot-dashboard`'s `apps/`
-      folder, `project.json`/`package.json` name fields, port/env-var
-      references, and `charts/dashboard` Helm chart (`values*.yaml`,
-      `backend.name`) all updated, plus the cross-repo references this
-      item called out (`mfe-pot-platform/docs/plans/mfe-pot-initial-design.md`,
-      `mfe-pot-platform/docs/plans/20260801-1935-mfe-pot-polyrepo-split-and-k8s-hosting.md`,
-      `mfe-pot-platform/apps/mfe-e2e/playwright.config.ts` +
-      `src/golden-path.spec.ts` comments, and every repo's `CLAUDE.md`).
-
 ## Language support
 
 - [ ] Add Cree and Inuktitut (`cr`/`iu`) alongside English/French. Scoped by
@@ -134,16 +121,6 @@ Not started. See `mfe-pot-platform/docs/plans/mfe-pot-initial-design.md`'s
       - No `Intl.NumberFormat`/`Intl.DateTimeFormat`/Angular `LOCALE_ID`
         usage exists anywhere yet, so there's no CLDR-formatting assumption
         to fight — a genuine plus, since `cr`/`iu` lack full CLDR data.
-
-## Documentation
-
-- [ ] No README exists in any of the 6 repos yet. Per
-      `mfe-pot-platform/docs/plans/20260801-1935-mfe-pot-polyrepo-split-and-k8s-hosting.md`'s
-      "README" section: `mfe-pot-platform` gets the main "how do I actually
-      run this thing" doc (cloning all 6 sibling repos + this repo's
-      `mfe-pot.code-workspace`, the `nx serve` fast loop, the full
-      containerized/kind loop, Strapi). Each of the 5 app repos gets a short
-      README of its own covering just that app standalone.
 
 ## Nx build performance
 
