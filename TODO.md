@@ -51,12 +51,27 @@ all 5 apps already — this is what's left, not a redesign:
       `webServer` rewire above — a pure refactor of specs/helpers in this
       repo.
 
+## Design principles (not yet documented/enforced — captured from a mobile note, needs write-up in `mfe-pot-platform/CLAUDE.md` once agreed)
+
+- [ ] UI apps and libraries may only call their own BFF — they may not call
+      other BFFs or backend services directly.
+- [ ] BFFs must not call each other, but they may call backend services.
+- [ ] The application must be deployable without an outage (zero-downtime
+      deploys).
+- [ ] The app must survive a failure of any node without client impact.
+- [ ] Shared state (session storage) managed cross-application via Redis —
+      concrete Redis requirement for the shared-session-cache work already
+      tracked below.
+- [ ] A/B testing as a first-class design principle — changes must be
+      testable at small scale for impact before full rollout.
+
 ## Shared BFF session cache
 
 - [ ] Add a shared session cache in `mfe-pot-platform` (new `libs/shared/session-cache`
       → `@tn4consulting/shared-session-cache`, following the existing
-      `libs/shared/*` naming convention) that the 4 BFFs' classes can use
-      instead of each holding its own independent in-memory state. Note the
+      `libs/shared/*` naming convention), backed by Redis, that the 4 BFFs'
+      classes can use instead of each holding its own independent in-memory
+      state. Note the
       tension with the platform's stated policy of minimizing cross-service
       shared state (`client-profile-service` is deliberately its own service
       rather than a shared in-memory lib, to avoid independently-built
@@ -169,14 +184,27 @@ have-a-representative, omnichannel-support. Almost none of it exists yet —
 Decided approach: build one vertical slice at a time rather than all 6 at
 once.
 
-- [ ] **Dashboard screen** (`dashboard.png`) — first slice, already planned
-      in detail (new `feature-overview` lib in `mfe-pot-dashboard` for
-      What's New / Needs Attention / Consider This, extend
-      `feature-payment-history` with program/status columns + bilingual fix,
-      wire into `apps/dashboard`). Full plan previously written to
-      `/Users/martin/.claude/plans/lovely-wandering-engelbart.md` —
-      re-derive/re-plan from that file's content if it's no longer present
-      (plan files under `~/.claude/plans` aren't repo-tracked).
+- [x] **Dashboard screen** (`dashboard.png` + `benefit-application-status.png`)
+      — done: `mfe-pot-dashboard` now has a real `feature-overview` lib
+      (`DashboardFeatureOverview`) rendering greeting/date/breadcrumb, mock
+      What's New / Needs Attention / Consider This sections (GCDS
+      `gcds-notice`/`gcds-card`), and three **real, BFF-backed** widgets —
+      My Tasks (now synthesized from live EI reporting status, not a static
+      string), EI Reporting Status ("days until next report due", computed
+      by a new `employment-insurance-bff` `/api/reporting-status` endpoint
+      since no reporting-cadence concept existed anywhere before), and My
+      Job Applications (sourced from `job-bank-bff`, now denormalizing
+      job title/employer onto `/api/applications`). `feature-payment-history`
+      also gained `program`/`status` columns end-to-end (including
+      `mfe-pot-platform`'s `client-profile-service`, the actual data owner)
+      rendered as a real HTML table. All new BFF/frontend code has Jest
+      coverage (including a `jest-axe` pass on the new component); the
+      repo-wide "no axe tooling" gap otherwise still stands. Benefit-
+      application-status's "My Active Programs" concept is now covered by
+      the EI Reporting Status / My Job Applications cards rather than a
+      separate screen. Old plan reference
+      (`~/.claude/plans/lovely-wandering-engelbart.md`) is superseded by
+      `~/.claude/plans/using-todo-list-and-vivid-mountain.md`.
 - [ ] Profile screen (`profile.png`) — My Profile/Preferences/Authorizations/
       Security tabs, personal/contact/family info, sidebar links (Message
       Centre, Payments History, Notifications, Document Centre). Natural
@@ -186,12 +214,6 @@ once.
       filters. No natural app owner yet identified; likely a new
       `mfe-pot-shell`-level local route (global nav concern) backed by a
       not-yet-built service.
-- [ ] Benefit-application-status screen
-      (`benefit-application-status.png`) — "My Active Programs" list
-      (EI/CPP/CDCP status, summary, required action). Conceptually maps to
-      `dashboard-bff`'s cross-benefit overview, which doesn't exist
-      as UI yet (the BFF's `/api/overview` endpoint exists; nothing renders
-      it beyond the payment-history widget).
 - [ ] Have-a-representative / acting-on-behalf-of flow
       (`have-a-representative.png`) — deferred, needs real design: touches
       session/identity and there's currently only a single mock persona
@@ -202,3 +224,12 @@ once.
       (candidate: shared shell-level widget, similar pattern to
       `PAYMENT_HISTORY_WIDGET_LOADER`'s host-mediated cross-remote
       composition if multiple remotes need it).
+
+## Design system extension (SCDS)
+
+- [ ] Extend the design system beyond GCDS, while staying GCDS-compatible —
+      working name "Canada Design System" (SCDS). Scope/home (new
+      `libs/shared/ui-scds` in `mfe-pot-platform`? standalone package?) still
+      to be decided.
+- [ ] Multi-column list component (e.g. a list of tasks or documents).
+- [ ] Card component (e.g. dashboard widgets).
