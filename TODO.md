@@ -39,6 +39,31 @@ all 5 apps already — this is what's left, not a redesign:
       cluster and fail on the port 443 conflict. Fix by making the script
       detect/accept the real cluster name instead of assuming `kind`.
 
+## E2E test architecture (`mfe-pot-platform/apps/mfe-e2e`)
+
+- [ ] Adopt the page object (page class) pattern across the 5 specs
+      (`golden-path`, `federation`, `accessibility`, `i18n`,
+      `widget-embedding`) to abstract tests from page structure. Today every
+      spec calls `page.getByRole/getByText/locator` directly inline, with
+      route paths, button labels, and `h1` checks duplicated across files;
+      the only existing shared helper is the non-class `signIn(page)`
+      function in `support/sign-in.ts`. Independent of the pending Phase 2
+      `webServer` rewire above — a pure refactor of specs/helpers in this
+      repo.
+
+## Shared BFF session cache
+
+- [ ] Add a shared session cache in `mfe-pot-platform` (new `libs/shared/session-cache`
+      → `@tn4consulting/shared-session-cache`, following the existing
+      `libs/shared/*` naming convention) that the 4 BFFs' classes can use
+      instead of each holding its own independent in-memory state. Note the
+      tension with the platform's stated policy of minimizing cross-service
+      shared state (`client-profile-service` is deliberately its own service
+      rather than a shared in-memory lib, to avoid independently-built
+      remotes silently diverging) — worth resolving that before building.
+      Related to the `pnpm demo:reset` gap above, which exists precisely
+      because BFF in-memory state isn't shared/resettable today.
+
 ## Demo narrative (proves the point, not just the pattern)
 
 Not started. See `mfe-pot-platform/docs/plans/mfe-pot-initial-design.md`'s
