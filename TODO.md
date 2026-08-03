@@ -38,6 +38,40 @@ all 5 apps already — this is what's left, not a redesign:
       Running the script as-is would try to create a second, duplicate
       cluster and fail on the port 443 conflict. Fix by making the script
       detect/accept the real cluster name instead of assuming `kind`.
+- [ ] `mfe-pot-platform`'s `shared-ui-gcds` build fails in a fresh CI
+      checkout with `TS5062: Substitution '.../core' in pattern
+      '@tn4consulting/shared-auth/core' can have at most one '*' character`
+      (ng-packagr's full-compilation-mode build against
+      `tsconfig.base.json`'s `@tn4consulting/shared-auth/core` path
+      mapping). Discovered getting `publish-shared-packages.yml` to actually
+      run end to end for the first time (see below) — every prior run of
+      that workflow had failed earlier in the job, so this is likely the
+      first time `shared-ui-gcds:build` has run in CI at all, not a
+      regression. `publish-shared-packages.yml` publishes `shared-ui-scds`
+      before `shared-ui-gcds` specifically so this doesn't block the former.
+
+## `publish-shared-packages.yml` — now actually working end to end
+
+Fixed a chain of pre-existing bugs that had silently kept this workflow
+failing on every run (checked: every run on `main` before this had failed,
+several dating back days) — worth knowing since none of these are specific
+to `shared-ui-scds`, the change that surfaced them:
+- `pnpm/action-setup@v4` had no version pinned (failed immediately at
+  setup) — fixed with an explicit `version:` matching `platform-versions.json`.
+- Root `pnpm-lock.yaml` was stale relative to a new `libs/shared/*`
+  workspace project — a reminder to run `pnpm install` at the repo root
+  after adding one, not just inside the new lib's own directory.
+- The workflow's default `GITHUB_TOKEN` doesn't reliably get read/write
+  access to this org's own private `@tn4consulting/*` packages via each
+  package's individually-configured "Manage Actions access" allowlist, even
+  once correctly set (confirmed well past any reasonable propagation
+  delay) — replaced with a PAT-backed `NPM_READ_TOKEN` repo secret, applied
+  job-wide.
+- `publish-shared-lib.mjs`'s "already published, no-op" detection
+  case-sensitively matched `'cannot publish over'`, but the real registry
+  error text is `"Cannot publish over existing version"` (capital C) — so
+  the common case (re-running the workflow with no version bump) hard-failed
+  instead of no-op'ing. Fixed with a case-insensitive check.
 
 ## E2E test architecture (`mfe-pot-platform/apps/mfe-e2e`)
 
@@ -227,9 +261,92 @@ once.
 
 ## Design system extension (SCDS)
 
-- [ ] Extend the design system beyond GCDS, while staying GCDS-compatible —
-      working name "Canada Design System" (SCDS). Scope/home (new
-      `libs/shared/ui-scds` in `mfe-pot-platform`? standalone package?) still
-      to be decided.
-- [ ] Multi-column list component (e.g. a list of tasks or documents).
-- [ ] Card component (e.g. dashboard widgets).
+- [x] Extend the design system beyond GCDS, while staying GCDS-compatible —
+      working name "Canada Design System" (SCDS). Home: new
+      `libs/shared/ui-scds` in `mfe-pot-platform`, published as
+      `@tn4consulting/shared-ui-scds`, following the exact scaffold pattern
+      of the existing `libs/shared/ui-gcds` (ng-packagr, its own publish
+      step in `publish-shared-packages.yml`).
+- [x] Multi-column list component (e.g. a list of tasks or documents) —
+      `ScdsMultiColumnList<T>`: typed `items`/`columns` array (with an
+      optional per-column `TemplateRef` escape hatch), real `<ul role="list">`
+      /`<li role="listitem">` markup, CSS Grid columns collapsing to
+      stacked "label: value" rows at GCDS's own 48em breakpoint, each
+      cell's column header always present as real (not CSS-generated)
+      text for assistive tech. `mfe-pot-dashboard`'s `dashboard-tasks-list`
+      is the first real consumer (single-column today, since
+      `dashboard-bff`'s task model is still plain strings — a richer
+      `{title, dueDate}` task shape is a possible follow-up, not done here).
+- [x] Card component (e.g. dashboard widgets) — `ScdsCard`: composes
+      alongside real `gcds-card` in "link" mode, but renders its own markup
+      in a "static" (non-navigating) mode — a genuine GCDS gap: bare
+      `gcds-card` requires `href` and renders nothing without it. Adds a
+      severity tone badge (reusing `gcds-notice`'s tone/icon vocabulary)
+      and a footer actions slot GCDS has no equivalent for.
+      `mfe-pot-dashboard`'s `dashboard-consider-this-list` is the first real
+      consumer, replacing its old `href="#"` dead-link workaround with the
+      static variant.
+      `@tn4consulting/shared-ui-scds@0.1.0` was published and confirmed
+      working live: `mfe-pot-dashboard` installed the real registry
+      package (not the dev-time `file:` link), redeployed to the local
+      `kind` cluster, and both components render correctly through the
+      shell's federated `/dashboard` route with real data.
+- [x] Adopt SCDS beyond `mfe-pot-dashboard`. Real fits found only in
+      `mfe-pot-employment-insurance` (3 `ScdsCard` candidates: claim
+      status, reporting status, application confirmation) and
+      `mfe-pot-job-bank` (job postings list, applications list) —
+      `mfe-pot-shell`/`mfe-pot-employment-life-events` have no card/list UI
+      to convert. `job-bank`'s frontend is **React**, and critically
+      consumed *no* custom elements at all before this (not even GCDS's
+      own) — a pure-Angular `shared-ui-scds` could never reach it.
+      **Rebuilt both components as framework-agnostic Stencil custom
+      elements** (`@tn4consulting/shared-ui-scds-core`, new package in
+      `mfe-pot-platform`), mirroring exactly how GCDS itself is built and
+      shipped (`@gcds-core/components` is Stencil; its Angular wrapper is
+      auto-generated via `@stencil/angular-output-target` — confirmed by
+      inspecting the installed package). Published and live. Real
+      shadow-DOM fixes this rewrite needed that the Angular version didn't:
+      `<ng-content select>` → named `<slot>`s, the ARIA-IDREF
+      `listLabelledBy` prop dropped (can't cross a shadow boundary),
+      `:empty` CSS → `:not(:has(::slotted(*)))`. Also drops the
+      Angular-only `column.template` `TemplateRef` escape hatch — no
+      web-component equivalent, no real consumer needed it.
+      `mfe-pot-job-bank`'s `FeatureSearch`/`JobApplicationsList` now
+      consume `scds-multi-column-list` directly (items/columns set
+      imperatively via DOM properties, registered once via a small
+      `register-scds.ts` module imported from both federation-exposed
+      entry points — `bootstrap.tsx` never runs when federated, a real
+      bug caught before it shipped). **Verified working standalone**
+      (real screenshot: a clean multi-column job-postings table, zero
+      console errors) — see the new bug immediately below for why it
+      isn't yet verified through the shell.
+      **Not yet done**: regenerate `shared-ui-scds`'s Angular wrapper from
+      the new Stencil core (`libs/shared/ui-scds`'s hand-written
+      components still exist, not yet replaced), align
+      `shared-federation-config`'s pin across all 5 app repos to include
+      the new shared singleton, and adopt `ScdsCard` in
+      `mfe-pot-employment-insurance`'s 3 candidates.
+- [ ] **New bug found, unrelated to SCDS**: `mfe-pot-shell` fails to load
+      `mfe-pot-job-bank` as a federated remote at all —
+      `SyntaxError: The requested module 'blob:...' does not provide an
+      export named 'useState'`. Root cause: job-bank's own build emits its
+      shared `react.js` chunk as a CommonJS-wrapped **single default
+      export** (`export default J()`, `J()` returning the whole CJS
+      `module.exports`), not real named ESM exports — the shell's
+      native-federation runtime can't destructure `useState` etc. from
+      that. **Confirmed pre-existing**, not a regression from the SCDS
+      work: checked out job-bank's prior commit in a scratch worktree,
+      rebuilt, and the exact same `export default J()` bundle shape
+      appears. Likely never caught before because job-bank is the only
+      React remote in the family (no other remote exercises the
+      shell's cross-remote React-sharing path), and this specific
+      shell→job-bank interactive path hadn't been manually verified in a
+      browser before. Also saw a second, likely-related console error
+      on the same page load: `[NF] Failed to load module
+      job-bank/./RemoteProviders: Exposed module './RemoteProviders' from
+      remote 'job-bank' not found in storage` — job-bank has never
+      exposed a `./RemoteProviders` module (that's a dashboard-specific
+      expose), so the shell may be assuming every remote has one.
+      job-bank works correctly standalone (own origin, no shell) with
+      zero console errors — this is purely a shell-mediated federation
+      loading issue.
