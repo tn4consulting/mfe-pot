@@ -1,5 +1,12 @@
 # mfe-pot
 
+> **Disclaimer:** This is an independent proof-of-technology project, built
+> as a personal/consulting exploration of micro-frontend architecture. It is
+> **not affiliated with, endorsed by, or associated with Service Canada,
+> Employment and Social Development Canada (ESDC), or the Government of
+> Canada** in any way. "MSCA" and any GC branding/design-system references
+> are used only to ground the proof of technology in a realistic scenario.
+
 Meta repo for the MSCA (My Service Canada Account) micro-frontend proof of
 technology. It holds only cross-repo coordination files — the repo map below,
 the VSCode multi-root workspace, and `TODO.md` — not any application code.
