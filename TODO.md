@@ -5,7 +5,7 @@ not in any one sibling repo, because most of what's left touches more than
 one repo (hosting/CI, naming, docs, demo narrative) and this meta repo is the
 one place that sits above all of them. Pulled originally from the "Known gap"
 call-outs in `mfe-pot-platform/CLAUDE.md` and the Demo Narrative section of
-`mfe-pot-platform/docs/plans/mfe-pot-initial-design.md`. Update this alongside
+`docs/plans/mfe-pot-initial-design.md`. Update this alongside
 those docs as items land, and prune items here once they're actually done —
 don't let this drift into a stale wishlist.
 
@@ -24,7 +24,7 @@ all 5 apps already — this is what's left, not a redesign:
       `file://` path.
 - [ ] AKS + ACR provisioning, then Stage 2 CI (push images to ACR, deploy to
       AKS) per app repo. Blocked on Azure resources not existing yet — see
-      `mfe-pot-platform/docs/plans/20260801-1935-mfe-pot-polyrepo-split-and-k8s-hosting.md`'s
+      `docs/plans/20260801-1935-mfe-pot-polyrepo-split-and-k8s-hosting.md`'s
       "Open items needing your input" for the unresolved questions (domain
       for the 5 hostnames, IaC tool, `az` CLI access).
 - [ ] `pnpm demo:reset` — the 4 BFFs hold in-memory state with no reset
@@ -115,7 +115,7 @@ to `shared-ui-scds`, the change that surfaced them:
 
 ## Demo narrative (proves the point, not just the pattern)
 
-Not started. See `mfe-pot-platform/docs/plans/mfe-pot-initial-design.md`'s
+Not started. See `docs/plans/mfe-pot-initial-design.md`'s
 "Demo Narrative & Experience" section for the full specifics.
 
 - [ ] Siloed-mode toggle in `mfe-pot-shell` — disables the cross-service calls
@@ -203,7 +203,7 @@ Not started. See `mfe-pot-platform/docs/plans/mfe-pot-initial-design.md`'s
       (each of the 6 repos has its own Nx workspace since the split) rather
       than once across one big workspace.
 
-## Concept UI screens (from `mfe-pot-platform/docs/msca-screenshots/`)
+## Concept UI screens (from `docs/msca-screenshots/`)
 
 Concept screenshots showing target UI for a fuller MSCA experience. Two files
 are duplicates of others (different crop, same content):

@@ -43,15 +43,124 @@ subagent worktree isolation.
 | [mfe-pot-employment-insurance](https://github.com/tn4consulting/mfe-pot-employment-insurance) | + `employment-insurance-bff`. EI application, claim status, reporting. |
 | [mfe-pot-employment-life-events](https://github.com/tn4consulting/mfe-pot-employment-life-events) | Guided "you lost your job" journey stitching the other three apps together. No BFF. |
 
-## Local dev
+## Getting started
 
-Clone each sibling repo alongside this one (as `mfe-pot-<name>`), then open
-`mfe-pot.code-workspace` in VSCode for a multi-root workspace covering the
-platform repo plus all 5 app repos.
+This is the **"how do I actually run the whole family"** doc. For
+architecture, rationale, and gotchas, see `mfe-pot-platform/CLAUDE.md`; for
+a single app's own standalone run instructions (plain `nx serve`, no
+containers), see that repo's own README.
+
+### Prerequisites
+
+- **[asdf](https://asdf-vm.com/)** with the `nodejs` plugin — each repo's
+  `.tool-versions` pins the exact Node version (22.22.0; anything ≥ 22.12
+  works, older 22.x versions fail on some build-time deps).
+- **pnpm** — not asdf-managed, install globally or via `corepack enable`.
+- **A GitHub personal access token with `read:packages` scope** — every app
+  repo's Docker image build pulls `@tn4consulting/shared-*` packages from
+  GitHub Packages. Export it as `NODE_AUTH_TOKEN`, or have the `gh` CLI
+  authenticated (`gh auth token` works as a substitute).
+- **Docker Desktop**, **[kind](https://kind.sigs.k8s.io/)**, **helm**, and
+  **kubectl** — the whole family runs as containers on a local `kind`
+  cluster; there's no non-containerized way to run more than one app at a
+  time (a single app's own README covers running *that app alone* via
+  `nx serve`, no containers needed).
+
+### First-time setup
+
+1. Clone this repo and all 5 app repos as **siblings** in one parent
+   folder — this repo's own multi-root workspace file, and every app
+   repo's `deploy-local.sh`, expect that exact layout:
+   ```bash
+   git clone git@github.com:tn4consulting/mfe-pot.git
+   cd mfe-pot
+   git clone git@github.com:tn4consulting/mfe-pot-platform.git
+   git clone git@github.com:tn4consulting/mfe-pot-shell.git
+   git clone git@github.com:tn4consulting/mfe-pot-dashboard.git
+   git clone git@github.com:tn4consulting/mfe-pot-job-bank.git
+   git clone git@github.com:tn4consulting/mfe-pot-employment-insurance.git
+   git clone git@github.com:tn4consulting/mfe-pot-employment-life-events.git
+   ```
+2. Open `mfe-pot.code-workspace` in VS Code for a multi-root view across
+   all 6 repos.
+3. Export your GitHub token: `export NODE_AUTH_TOKEN=<your token>`.
+4. In `mfe-pot-platform`, install deps and sanity-check the build:
+   ```bash
+   cd mfe-pot-platform
+   pnpm install
+   nx run-many -t lint,test,build --all
+   ```
+5. In each of the 5 app repos, `pnpm install`.
+
+### Running the whole stack on `kind`
+
+Every app is deployed as a real container to a local `kind` cluster via
+Helm — the same shape that ships to production (one image per app,
+runtime-injected config, Ingress), not `nx serve`. Each repo's
+`pnpm deploy:local` is idempotent — safe to rerun after a code change.
+
+1. **Deploy Strapi first** (from `mfe-pot-platform`) — it creates/reuses
+   the shared `kind` cluster (named `kind` by default; override with
+   `CLUSTER_NAME` if you already use that name for something else) that
+   every app repo below reuses, and installs `ingress-nginx`:
+   ```bash
+   cd mfe-pot-platform
+   pnpm deploy:local
+   ```
+2. **Deploy each app repo**, in any order:
+   ```bash
+   cd ../mfe-pot-shell                    && pnpm deploy:local
+   cd ../mfe-pot-dashboard                && pnpm deploy:local
+   cd ../mfe-pot-job-bank                 && pnpm deploy:local
+   cd ../mfe-pot-employment-insurance     && pnpm deploy:local
+   cd ../mfe-pot-employment-life-events   && pnpm deploy:local
+   ```
+   Each script builds that repo's image(s), loads them into `kind` (no
+   registry round-trip), and `helm upgrade --install`s that repo's chart —
+   it needs `mfe-pot-platform` checked out as a sibling for the Helm
+   library-chart `file://` dependency and (for Strapi's own hostname) the
+   shared `kind-config.yaml`.
+3. **Add every app's hostname to `/etc/hosts`** (`kind` has no real DNS):
+   ```
+   127.0.0.1 cms.mfe-pot.local
+   127.0.0.1 shell.mfe-pot.local
+   127.0.0.1 dashboard.mfe-pot.local
+   127.0.0.1 job-bank.mfe-pot.local
+   127.0.0.1 employment-insurance.mfe-pot.local
+   127.0.0.1 employment-life-events.mfe-pot.local
+   ```
+4. Browse to `http://shell.mfe-pot.local` and sign in with the mock login,
+   or verify any single app with curl, e.g.
+   `curl -H "Host: job-bank.mfe-pot.local" http://localhost/`. First visit
+   to `http://cms.mfe-pot.local/admin` prompts you to create the Strapi
+   admin account (no default credentials are seeded).
+
+**Not containerized yet**: `client-profile-service` (in `mfe-pot-platform`)
+has no Dockerfile/chart yet — see `TODO.md` — so `dashboard-bff`'s
+profile/payments tiles show `unavailable` in a pure-`kind` stack unless
+you also run it locally via `nx serve client-profile-service` (port 3003)
+from `mfe-pot-platform`.
+
+### Testing
+
+- **Unit tests** (Jest), per repo: `nx run-many -t test --all`.
+- **Composed integration suite** (`mfe-pot-platform`'s `apps/mfe-e2e`):
+  Playwright, covers routed federation, cross-remote widget embedding, the
+  language broadcast, the BFF-backed golden path, and
+  `@axe-core/playwright` WCAG 2.2 AA scans. **Currently incomplete**: it
+  only starts `client-profile-service` itself, not the 5 sibling apps —
+  see `TODO.md`'s "Hosting / CI" section, "Phase 2".
+
+### Publishing a `libs/shared/*` package
+
+Only needed if you're changing a shared library and want app repos to pick
+it up. See `mfe-pot-platform/CLAUDE.md`'s "Strong contracts between split
+repos" section for the mechanism and a real gotcha to avoid.
 
 ## Where things live
 
 - **Architecture rationale, requirements, gotchas** — `mfe-pot-platform/CLAUDE.md`
 - **Outstanding cross-repo work** (hosting/CI, demo narrative, docs) — `TODO.md` in this folder
+- **Project-wide planning/design docs** — `docs/plans/` in this folder (`mfe-pot-initial-design.md` for the original design, the polyrepo-split/K8s-hosting doc for that migration's history); platform-specific planning docs, if any, live in `mfe-pot-platform`'s own `docs/plans/` instead
 - **Cross-repo technical config** (Renovate preset, `platform-versions.json`) — `mfe-pot-platform`, not here
 - **Per-repo details** — each repo has its own `CLAUDE.md`
