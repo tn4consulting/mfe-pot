@@ -34,10 +34,13 @@ all 5 apps already — this is what's left, not a redesign:
       would fix repeatable local/CI runs and live demos alike.
 - [ ] Each app repo's `tools/deploy-local.sh` hardcodes `CLUSTER_NAME=kind`,
       but the actual local cluster is named `mfe-pot` (`kind-mfe-pot`
-      context) — discovered while redeploying `mfe-pot-dashboard` by hand.
-      Running the script as-is would try to create a second, duplicate
-      cluster and fail on the port 443 conflict. Fix by making the script
-      detect/accept the real cluster name instead of assuming `kind`.
+      context) — discovered while redeploying `mfe-pot-dashboard` by hand,
+      **reconfirmed 2026-08-03 hitting the same failure in `mfe-pot-shell`**
+      (script tried to create a second `kind` cluster, died on the port
+      80/443 conflict with the already-running `kind-mfe-pot` one). Fix
+      needed in all 5 app repos' `tools/deploy-local.sh`: detect/accept the
+      real cluster name (e.g. read it from `kubectl config current-context`
+      or take a `CLUSTER_NAME` env override) instead of hardcoding `kind`.
 - [ ] `mfe-pot-platform`'s `shared-ui-gcds` build fails in a fresh CI
       checkout with `TS5062: Substitution '.../core' in pattern
       '@tn4consulting/shared-auth/core' can have at most one '*' character`
@@ -379,27 +382,130 @@ once.
       `kind` and verified live through the shell: claim status, the
       EI-apply confirmation card, and their tone badges all render
       correctly, zero new console errors.
-- [ ] **New bug found, unrelated to SCDS**: `mfe-pot-shell` fails to load
-      `mfe-pot-job-bank` as a federated remote at all —
-      `SyntaxError: The requested module 'blob:...' does not provide an
-      export named 'useState'`. Root cause: job-bank's own build emits its
-      shared `react.js` chunk as a CommonJS-wrapped **single default
-      export** (`export default J()`, `J()` returning the whole CJS
-      `module.exports`), not real named ESM exports — the shell's
-      native-federation runtime can't destructure `useState` etc. from
-      that. **Confirmed pre-existing**, not a regression from the SCDS
-      work: checked out job-bank's prior commit in a scratch worktree,
-      rebuilt, and the exact same `export default J()` bundle shape
-      appears. Likely never caught before because job-bank is the only
-      React remote in the family (no other remote exercises the
-      shell's cross-remote React-sharing path), and this specific
-      shell→job-bank interactive path hadn't been manually verified in a
-      browser before. Also saw a second, likely-related console error
-      on the same page load: `[NF] Failed to load module
-      job-bank/./RemoteProviders: Exposed module './RemoteProviders' from
-      remote 'job-bank' not found in storage` — job-bank has never
-      exposed a `./RemoteProviders` module (that's a dashboard-specific
-      expose), so the shell may be assuming every remote has one.
-      job-bank works correctly standalone (own origin, no shell) with
-      zero console errors — this is purely a shell-mediated federation
-      loading issue.
+- [x] `mfe-pot-shell` failed to load `mfe-pot-job-bank` as a federated
+      remote — `SyntaxError: ... does not provide an export named
+      'useState'`. Root cause, confirmed by inspecting the actual built
+      shared `react.js` chunk directly: `apps/job-bank/build/build.mjs`
+      and `serve.mjs` passed `adapterConfig.frameworks: []` to
+      `@softarc/native-federation-esbuild`'s `runEsBuildBuilder`, to avoid
+      `reactFrameworkPlugin()`'s hardcoded dev/prod `fileReplacements` map
+      (stale against React 19's renamed CJS filenames). That also silently
+      dropped the *other*, unrelated thing the framework plugin sets —
+      `needsCommonJsPlugin: true`, which is what makes
+      `node-modules-bundler.js` load `@chialab/esbuild-plugin-commonjs`
+      for shared node_modules chunks. Without it, esbuild's own default
+      CJS→ESM interop was used instead, which only synthesizes named
+      exports it can statically prove are used *within the same build
+      graph* — a shared chunk built as its own standalone entry point has
+      none to find, so it degraded to one `export default` wrapping the
+      whole `module.exports` object (every hook really was on it, just not
+      as a real named export). Fixed by passing
+      `frameworks: [{ needsCommonJsPlugin: true }]` instead of `[]` in both
+      files — keeps the CJS-interop plugin (which does real static
+      analysis of the CJS module's own exports, not the importer's usage)
+      without reintroducing the stale file-replacement paths. Verified: the
+      rebuilt shared chunk now ends in a real `export { ... useState, ... }`
+      statement; `nx test job-bank` still passes; redeployed both
+      `job-bank` and `shell` (which also needed a redeploy — its running
+      pod predated the `Mount job-bank as a react-kind remote` commit,
+      which was the separate cause of a `./RemoteProviders`-not-found
+      console error seen alongside this) to the local `kind` cluster and
+      confirmed the deployed job-bank chunk now exports `useState` by
+      name.
+      **Second, deeper bug surfaced once the above was fixed**: shell then
+      threw `Dynamic require of "react" is not supported` from inside
+      `createRoot` (react-dom's own chunk). Root cause: react-dom is a CJS
+      package that internally does `require('react')` to reach React's
+      shared internals, and in
+      `@angular-architects/native-federation`'s shared-chunk build path
+      (`node-modules-bundler.js`), `createAngularLinkerPlugin()`'s `onLoad`
+      handler claimed *every* `.js` file passing through, even ones that
+      never needed Angular linking, whenever `advancedOptimizations`
+      (`= !dev`, i.e. always true for a production build) was set —
+      permanently consuming esbuild's onLoad slot before
+      `@chialab/esbuild-plugin-commonjs` (registered after it) ever got a
+      turn, so react-dom's internal `require('react')` never got converted
+      to a real import and esbuild's own fallback interop can't resolve a
+      `require()` of an externally-shared module.
+      First attempt (un-sharing `react-dom`/`react-dom/client` as
+      federation singletons entirely) turned out to be a dead end: react-dom
+      still failed with the identical error, just moved to Angular's
+      regular app-bundle pipeline instead, which doesn't wire in the
+      CJS-interop plugin at all — same underlying problem, different
+      symptom location. Reverted that.
+      **Real fix**: `pnpm patch @angular-architects/native-federation`
+      (patch committed at
+      `mfe-pot-shell/patches/@angular-architects__native-federation.patch`,
+      registered in `package.json`'s `pnpm.patchedDependencies` — the
+      Dockerfile also needed `COPY patches ./patches` added before
+      `pnpm install`, since the image build wouldn't otherwise have the
+      patch file available to apply). Changed
+      `createAngularLinkerPlugin`'s condition from
+      `if (!needsLinking && !advancedOptimizations) return null` to
+      `if (!needsLinking) return null` — always pass through when a file
+      genuinely doesn't need Angular's linker (per the existing, precise
+      `requiresLinking()` check), regardless of `advancedOptimizations`,
+      so react-dom correctly falls through to the CJS-interop plugin while
+      Angular libraries that do need linking are unaffected (kept
+      plugin *order* as originally shipped — `[linker, commonjs]` — a
+      same-file reorder attempt independently caused a regression: any file
+      the linker plugin would otherwise correctly claim instead got
+      swallowed by the commonjs plugin first, leaving raw un-linked
+      `ɵɵngDeclareFactory`/`ɵɵngDeclareInjectable`/etc. calls in the output,
+      which surfaced as `Error: JIT compiler unavailable` at runtime for
+      `@angular/common`'s shared chunk — the JIT compiler isn't bundled in
+      a production build, so anything left unlinked crashes instead of
+      falling back).
+      **Verified three times over** (worth noting since the first two
+      "fixed" attempts both looked plausible until tested against the real
+      deployed bundle): zero `Dynamic require` string matches and zero
+      literal `require(...)` call sites survive anywhere in the deployed
+      shell pod's JS; zero unlinked `ɵɵngDeclare*` *call sites* remain
+      (the one remaining string match, in `@angular/core`'s own chunk, is
+      that package's public export list of the linker-helper functions
+      themselves — expected, matches `requiresLinking()`'s own deliberate
+      `@angular/core`/`@angular/compiler` exclusion). Also hit, and had to
+      work around, the project's own documented "Dev-server caching
+      gotcha" (`mfe-pot-platform/CLAUDE.md`) mid-investigation: iterating
+      on the patch locally without clearing `mfe-pot-shell/.angular` served
+      a stale pre-patch copy of the federation builder logic, making a
+      correct fix look like a no-op — `rm -rf .angular
+      node_modules/.cache/native-federation` before each local rebuild
+      fixed that; not an issue for the Docker image build itself, which
+      always starts fresh. `nx test shell` passes; rebuilt (`--no-cache`)
+      and redeployed to `kind`; this is a genuine upstream bug in
+      `@angular-architects/native-federation` worth reporting, not
+      something wrong in this codebase.
+      Not yet done: `mfe-pot-job-bank/apps/job-bank/federation.config.mjs`
+      still declares `react-dom`/`react-dom/client` as shared too — inert
+      today (job-bank never imports them), harmless, left as-is.
+      **Third bug, surfaced once the first two were fixed**: job-bank then
+      failed with `Unable to resolve specifier
+      '@tn4consulting/shared-ui-scds-core/loader'` (on both the routed
+      `/job-bank` page and the dashboard's embedded job-applications
+      widget). Root cause: `register-scds.ts` imports
+      `defineCustomElements` from the Stencil-generated `/loader` subpath,
+      but `shared-federation-config/react.js`'s
+      `sharedGcdsFederationDependency` only declares the bare
+      `@tn4consulting/shared-ui-scds-core` specifier as shared, with
+      `includeSecondaries: false` (deliberately, to dodge the
+      already-documented `react/jsx-runtime` auto-discovery bug) — so the
+      `/loader` subpath was never in the shared import map at all. This
+      route (both the standalone job-bank page and the dashboard-embedded
+      widget) had evidently never been exercised end to end through the
+      shell before. Fixed locally in
+      `mfe-pot-job-bank/apps/job-bank/federation.config.mjs`: added an
+      explicit `share({'@tn4consulting/shared-ui-scds-core/loader': {...same
+      singleton shape}})` entry alongside the existing shared config,
+      rather than editing the published platform package (smaller,
+      contained, no cross-repo package-publish/version-bump needed since
+      nothing else in the family imports this subpath). Verified: rebuilt
+      job-bank's `remoteEntry.json` now lists both
+      `@tn4consulting/shared-ui-scds-core` and its `/loader` subpath as
+      shared; `nx test job-bank` passes; redeployed to `kind`.
+      **Not yet folded into the published package**: this fix lives only
+      in job-bank's local federation config. If `shared-ui-scds-core`
+      ever grows another consumer of `/loader` (or any other subpath),
+      the real fix belongs in `shared-federation-config/react.js` itself
+      (a version bump + pin update across consuming repos) rather than
+      each repo re-patching around it independently.
