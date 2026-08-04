@@ -52,15 +52,17 @@ all 5 apps already — this is what's left, not a redesign:
       coordinates all the sibling repos for the composed test suite.
       `mfe-e2e`'s golden-path test still works around the underlying gap
       with loose assertions instead of exact counts in the meantime.
-- [ ] Each app repo's `tools/deploy-local.sh` hardcodes `CLUSTER_NAME=kind`,
+- [x] Each app repo's `tools/deploy-local.sh` hardcoded `CLUSTER_NAME=kind`,
       but the actual local cluster is named `mfe-pot` (`kind-mfe-pot`
       context) — discovered while redeploying `mfe-pot-dashboard` by hand,
-      **reconfirmed 2026-08-03 hitting the same failure in `mfe-pot-shell`**
+      reconfirmed 2026-08-03 hitting the same failure in `mfe-pot-shell`
       (script tried to create a second `kind` cluster, died on the port
-      80/443 conflict with the already-running `kind-mfe-pot` one). Fix
-      needed in all 5 app repos' `tools/deploy-local.sh`: detect/accept the
-      real cluster name (e.g. read it from `kubectl config current-context`
-      or take a `CLUSTER_NAME` env override) instead of hardcoding `kind`.
+      80/443 conflict with the already-running `kind-mfe-pot` one). Fixed
+      2026-08-04 in the last 2 stragglers (`mfe-pot-shell`,
+      `mfe-pot-employment-life-events` — the other 3 already had it) by
+      accepting a `CLUSTER_NAME` env override instead of hardcoding `kind`,
+      needed so `mfe-pot/tools/deploy-local.sh` (new, see below) can target
+      the real cluster name when orchestrating all 6 repos at once.
 - [ ] `mfe-pot-platform`'s `shared-ui-gcds` build fails in a fresh CI
       checkout with `TS5062: Substitution '.../core' in pattern
       '@tn4consulting/shared-auth/core' can have at most one '*' character`
