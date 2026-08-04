@@ -41,11 +41,17 @@ all 5 apps already — this is what's left, not a redesign:
       `docs/plans/20260801-1935-mfe-pot-polyrepo-split-and-k8s-hosting.md`'s
       "Open items needing your input" for the unresolved questions (domain
       for the 5 hostnames, IaC tool, `az` CLI access).
-- [ ] `pnpm demo:reset` — the 4 BFFs hold in-memory state with no reset
-      endpoint, so local/CI runs accumulate applications and claims across
-      restarts. `mfe-e2e`'s golden-path test already works around this with
-      loose assertions instead of exact counts, but a real reset endpoint
-      would fix repeatable local/CI runs and live demos alike.
+- [ ] `pnpm demo:reset` — each of the 3 BFFs now has its own `POST
+      /api/reset` (see "Shared BFF session cache" below), but there's still
+      no single cross-repo command that calls all 3 (this meta repo has no
+      root `package.json` to hang one off), and the BFF pods running on
+      `kind` today are still on the old in-memory code, not yet rebuilt
+      against the real published `@tn4consulting/shared-session-cache`. A
+      small script (a curl loop over the 3 BFFs' URLs) most naturally
+      belongs in `mfe-pot-platform`'s `apps/mfe-e2e`, which already
+      coordinates all the sibling repos for the composed test suite.
+      `mfe-e2e`'s golden-path test still works around the underlying gap
+      with loose assertions instead of exact counts in the meantime.
 - [ ] Each app repo's `tools/deploy-local.sh` hardcodes `CLUSTER_NAME=kind`,
       but the actual local cluster is named `mfe-pot` (`kind-mfe-pot`
       context) — discovered while redeploying `mfe-pot-dashboard` by hand,
@@ -118,22 +124,46 @@ to `shared-ui-scds`, the change that surfaced them:
 
 ## Shared BFF session cache
 
-- [ ] Add a shared session cache in `mfe-pot-platform` (new `libs/shared/session-cache`
-      → `@tn4consulting/shared-session-cache`, following the existing
-      `libs/shared/*` naming convention), backed by Redis, that the 3 BFFs'
-      classes can use instead of each holding its own independent in-memory
-      state. Note the tension with the platform's stated policy of
-      minimizing cross-service shared state — this used to be illustrated by
-      `client-profile-service` being deliberately its own service rather
-      than a shared in-memory lib, to avoid independently-built remotes
-      silently diverging, but that service has since been removed and its
-      data folded directly into `dashboard-bff`'s own local data (see
-      "Hosting / CI" above) — the tension is now moot for that specific data
-      (dashboard-bff *is* the shared-in-one-place answer for its own
-      domain), but still applies to any future cross-BFF session-cache work
-      spanning multiple domains. Worth resolving before building. Related to
-      the `pnpm demo:reset` gap above, which exists precisely because BFF
-      in-memory state isn't shared/resettable today.
+- [x] Added a shared session cache in `mfe-pot-platform`
+      (`libs/shared/session-cache` → `@tn4consulting/shared-session-cache`,
+      following the existing `libs/shared/*` naming convention): a minimal
+      `SessionCache` interface (`getJson`/`setJson`/`reset`/`buildKey`) with
+      two implementations, `RedisSessionCache` (real `ioredis` client) and
+      `InMemorySessionCache` (the `nx serve` default when `REDIS_URL` isn't
+      set, and what unit tests inject — no real Redis needed in CI). Each of
+      the 3 BFFs (`dashboard-bff`, `job-bank-bff`, `employment-insurance-bff`)
+      now uses its own namespaced instance (`keyPrefix`) instead of a
+      module-level array/Map — a connection/serialization helper, not shared
+      business state, so the cross-service-shared-state tension noted below
+      doesn't actually apply. Each BFF also gained a `POST /api/reset`
+      (no auth, PoT-only) that clears just its own prefix — the piece that
+      unlocks `pnpm demo:reset` above (the actual cross-repo reset script is
+      still a follow-up, most naturally living in `mfe-pot-platform`'s
+      `apps/mfe-e2e`). Id generation in `job-bank-bff`/`employment-insurance-bff`
+      switched from array-length-derived (`app-${n+1}`) to `crypto.randomUUID()`
+      — a necessary correctness fix, not cosmetic, since array-length ids
+      silently collide once state outlives a single process.
+      New `mfe-pot-platform/charts/session-cache` (plain `redis:7-alpine`,
+      no persistence/no auth — a resettable PoT demo cache, not durable or
+      sensitive storage, same posture as `charts/strapi`'s dummy secrets) is
+      deployed once, independently of any per-app chart, same as
+      `charts/strapi` — folded into `tools/deploy-local.sh`. All 3 BFF
+      charts' `values.yaml` point `REDIS_URL` at its in-cluster Service DNS
+      (`session-cache.default.svc.cluster.local:6379`).
+      Verified live on the `kind` cluster: the chart deploys and passes its
+      `redis-cli ping` readiness probe, a throwaway debug pod confirms the
+      same Service DNS the BFFs use actually resolves and responds, and the
+      real (non-mocked) `RedisSessionCache` — via a local port-forward —
+      round-trips a JSON value and `reset()`s correctly against it.
+      **Not yet done**: the 3 BFFs' own pods still run the old in-memory
+      code. Their Dockerfiles' `pnpm install --frozen-lockfile` runs inside
+      a build context scoped to each repo's own root, so they need the real
+      published `@tn4consulting/shared-session-cache` package from GitHub
+      Packages, not a local link — i.e. `publish-shared-packages.yml` needs
+      to actually run (already wired to publish this package) before any of
+      the 3 BFF repos can bump their dependency off the temporary
+      `file:../mfe-pot-platform/libs/shared/session-cache` reference each
+      currently carries and get their images rebuilt/redeployed to `kind`.
 
 ## Demo narrative (proves the point, not just the pattern)
 
