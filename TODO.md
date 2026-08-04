@@ -15,9 +15,23 @@ The Docker-image + Helm-chart pattern is proven and validated on `kind` for
 all 5 apps already — this is what's left, not a redesign:
 
 - [ ] Phase 2 — rewire `mfe-pot-platform/apps/mfe-e2e`'s `playwright.config.ts`
-      `webServer` array: today it only starts `client-profile-service`. Needs
-      each of the 5 sibling app repos' `nx serve` pointed at from their
-      checkout paths so the composed suite covers all 5 apps again.
+      `webServer` array: today it starts nothing at all (`client-profile-service`,
+      the one thing it used to start, has been removed entirely — see
+      "`client-profile-service` removed" below). Needs each of the 5 sibling
+      app repos' `nx serve` pointed at from their checkout paths so the
+      composed suite covers all 5 apps again.
+- [x] **`client-profile-service` removed** (`mfe-pot-platform`, was port
+      3003) — it had no Helm chart, so its one caller (`dashboard-bff`'s
+      `/api/payments`) 502'd in any real deployment. Its payments/
+      correspondence data now lives directly in `dashboard-bff`'s own local
+      `data.ts` (`mfe-pot-dashboard`), the same in-memory-stub pattern
+      `job-bank-bff`/`employment-insurance-bff` already use for their own
+      domains — the 502 is gone for good, no upstream call left to fail.
+      **Tradeoff**: the service existed specifically so this data was one
+      shared source across all three domain BFFs, not a disconnected
+      per-remote copy (its own doc comment said so) — folding it into
+      `dashboard-bff` makes it dashboard-only. See the "tell us once" demo
+      beat below, which this narrows.
 - [ ] Push `mfe-frontend-lib`/`mfe-backend-lib` (the two Helm library charts,
       in `mfe-pot-platform`) to a registry as OCI artifacts — every app
       repo's `Chart.yaml` still references them via a sibling-checkout-relative
@@ -106,15 +120,20 @@ to `shared-ui-scds`, the change that surfaced them:
 
 - [ ] Add a shared session cache in `mfe-pot-platform` (new `libs/shared/session-cache`
       → `@tn4consulting/shared-session-cache`, following the existing
-      `libs/shared/*` naming convention), backed by Redis, that the 4 BFFs'
+      `libs/shared/*` naming convention), backed by Redis, that the 3 BFFs'
       classes can use instead of each holding its own independent in-memory
-      state. Note the
-      tension with the platform's stated policy of minimizing cross-service
-      shared state (`client-profile-service` is deliberately its own service
-      rather than a shared in-memory lib, to avoid independently-built
-      remotes silently diverging) — worth resolving that before building.
-      Related to the `pnpm demo:reset` gap above, which exists precisely
-      because BFF in-memory state isn't shared/resettable today.
+      state. Note the tension with the platform's stated policy of
+      minimizing cross-service shared state — this used to be illustrated by
+      `client-profile-service` being deliberately its own service rather
+      than a shared in-memory lib, to avoid independently-built remotes
+      silently diverging, but that service has since been removed and its
+      data folded directly into `dashboard-bff`'s own local data (see
+      "Hosting / CI" above) — the tension is now moot for that specific data
+      (dashboard-bff *is* the shared-in-one-place answer for its own
+      domain), but still applies to any future cross-BFF session-cache work
+      spanning multiple domains. Worth resolving before building. Related to
+      the `pnpm demo:reset` gap above, which exists precisely because BFF
+      in-memory state isn't shared/resettable today.
 
 ## Demo narrative (proves the point, not just the pattern)
 
@@ -127,8 +146,13 @@ Not started. See `docs/plans/mfe-pot-initial-design.md`'s
       disconnected status pages. The "before" picture for the demo.
 - [ ] Live "tell us once" demo beat — address/bank details entered once in
       the `mfe-pot-employment-life-events` journey visibly pre-fill the EI
-      application and Job Bank profile, actually crossing the
-      `client-profile-service` boundary.
+      application and Job Bank profile. **Needs a redesign before it can be
+      built**: this assumed crossing a real shared `client-profile-service`
+      boundary reachable by all three domain BFFs, but that service has
+      since been removed — its data now lives only inside `dashboard-bff`'s
+      own local store (see "Hosting / CI" above), which `job-bank-bff`/
+      `employment-insurance-bff` can't reach. A real cross-BFF shared store
+      (e.g. the Redis-backed session cache below) would need to exist first.
 - [ ] Visible policy-outcome proxy — a journey meter (systems touched, fields
       re-entered, steps remaining, simulated calendar day) fed by both modes:
       siloed mode starts job search ~day 24, life-event mode starts day 1.
@@ -233,7 +257,9 @@ once.
       Job Applications (sourced from `job-bank-bff`, now denormalizing
       job title/employer onto `/api/applications`). `feature-payment-history`
       also gained `program`/`status` columns end-to-end (including
-      `mfe-pot-platform`'s `client-profile-service`, the actual data owner)
+      `mfe-pot-platform`'s `client-profile-service`, the actual data owner
+      at the time — since removed, its data now lives in `dashboard-bff`
+      itself, see "Hosting / CI" above)
       rendered as a real HTML table. All new BFF/frontend code has Jest
       coverage (including a `jest-axe` pass on the new component); the
       repo-wide "no axe tooling" gap otherwise still stands. Benefit-

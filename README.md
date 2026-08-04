@@ -36,7 +36,7 @@ subagent worktree isolation.
 
 | Repo | Role |
 |---|---|
-| [mfe-pot-platform](https://github.com/tn4consulting/mfe-pot-platform) | The platform repo (formerly `mfe-app`). Home to `libs/shared/*` (published as `@tn4consulting/shared-*` packages), the `client-profile-service` BFF, the composed `mfe-e2e` suite, Strapi, `platform-versions.json` (cross-repo version-alignment source of truth), and the two Helm library charts. |
+| [mfe-pot-platform](https://github.com/tn4consulting/mfe-pot-platform) | The platform repo (formerly `mfe-app`). Home to `libs/shared/*` (published as `@tn4consulting/shared-*` packages), the composed `mfe-e2e` suite, Strapi, `platform-versions.json` (cross-repo version-alignment source of truth), and the two Helm library charts. |
 | [mfe-pot-shell](https://github.com/tn4consulting/mfe-pot-shell) | Host app: app frame, GC header/footer, language switcher, mock sign-in, runtime federation manifest reader. No BFF. |
 | [mfe-pot-dashboard](https://github.com/tn4consulting/mfe-pot-dashboard) | + `dashboard-bff`. Cross-benefit overview, payment history, correspondence. |
 | [mfe-pot-job-bank](https://github.com/tn4consulting/mfe-pot-job-bank) | + `job-bank-bff`. Job search and apply. |
@@ -135,21 +135,16 @@ runtime-injected config, Ingress), not `nx serve`. Each repo's
    to `http://cms.mfe-pot.local/admin` prompts you to create the Strapi
    admin account (no default credentials are seeded).
 
-**Not containerized yet**: `client-profile-service` (in `mfe-pot-platform`)
-has no Dockerfile/chart yet — see `TODO.md` — so `dashboard-bff`'s
-profile/payments tiles show `unavailable` in a pure-`kind` stack unless
-you also run it locally via `nx serve client-profile-service` (port 3003)
-from `mfe-pot-platform`.
-
 ### Testing
 
 - **Unit tests** (Jest), per repo: `nx run-many -t test --all`.
 - **Composed integration suite** (`mfe-pot-platform`'s `apps/mfe-e2e`):
   Playwright, covers routed federation, cross-remote widget embedding, the
   language broadcast, the BFF-backed golden path, and
-  `@axe-core/playwright` WCAG 2.2 AA scans. **Currently incomplete**: it
-  only starts `client-profile-service` itself, not the 5 sibling apps —
-  see `TODO.md`'s "Hosting / CI" section, "Phase 2".
+  `@axe-core/playwright` WCAG 2.2 AA scans. **Currently incomplete**: its
+  `webServer` array starts nothing at all (`client-profile-service`, the one
+  thing it used to start, has been removed — see `TODO.md`'s "Hosting / CI"
+  section) — run it against an already-running stack until Phase 2 lands.
 
 ### Publishing a `libs/shared/*` package
 
