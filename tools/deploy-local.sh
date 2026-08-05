@@ -22,16 +22,62 @@
 # Safe to re-run any time -- every step is `helm upgrade --install`, and
 # the persistence check at the end only ever adds one throwaway
 # "rollout-check" record per BFF, never touching any other data.
+#
+# Skip-if-unchanged: each sibling repo is only rebuilt/redeployed when
+# its own git tree (HEAD + any uncommitted/untracked changes) differs
+# from the tree last successfully deployed, AND its helm release(s) are
+# still actually present on the cluster. State lives in .deploy-state/
+# (gitignored), one file per repo. Known blind spot: this only looks at
+# each repo's own git tree, not at published @tn4consulting/* package
+# versions it pulls in via pnpm during the image build -- if you bump/
+# publish a shared lib in mfe-pot-platform and want a downstream app to
+# pick it up without any change to the app repo itself, use -f.
+#
+# Usage: tools/deploy-local.sh [-f|--force] [-h|--help]
+#   -f, --force   rebuild and redeploy every app regardless of whether
+#                 its git tree changed since the last successful deploy.
+#   -h, --help    show this message and exit.
+#
+# Env vars:
+#   CLUSTER_NAME        kind cluster name (default: mfe-pot)
+#   DOCKER_MIN_FREE_GB  free-disk threshold that triggers a Docker
+#                       build-cache/dangling-image prune before building
+#                       (default: 15)
 
 set -uo pipefail
 
+usage() {
+  cat <<'EOF'
+Usage: tools/deploy-local.sh [-f|--force] [-h|--help]
+
+  -f, --force   rebuild and redeploy every app regardless of whether its
+                git tree changed since the last successful deploy.
+  -h, --help    show this message and exit.
+EOF
+}
+
+FORCE=0
+for arg in "$@"; do
+  case "$arg" in
+    -f|--force) FORCE=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *)
+      echo "error: unknown option '$arg'" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
 CLUSTER_NAME="${CLUSTER_NAME:-mfe-pot}"
 CONTEXT="kind-$CLUSTER_NAME"
+DOCKER_MIN_FREE_GB="${DOCKER_MIN_FREE_GB:-15}"
+STATE_DIR="$(dirname "${BASH_SOURCE[0]}")/../.deploy-state"
 
 # name -> repo dir. Order matters: platform's shared infra first, then
 # the 3 BFF-owning apps (so dashboard-bff has something to fan out to
-# the moment it comes up), then the 2 frontend-only apps. Two parallel
-# arrays, not an associative array -- macOS's default /bin/bash (3.2)
+# the moment it comes up), then the 2 frontend-only apps. Parallel
+# arrays, not associative arrays -- macOS's default /bin/bash (3.2)
 # predates `declare -A` support.
 STEPS=(
   "mfe-pot-platform"
@@ -51,8 +97,55 @@ STEP_BACKENDS=(
   ""
   ""
 )
+# Space-separated helm release name(s) per entry above -- used to check
+# whether a repo's release(s) are still actually present on the cluster
+# before trusting a "nothing changed" skip (e.g. after the cluster was
+# torn down and recreated without this script's state being reset).
+STEP_RELEASES=(
+  "session-cache strapi"
+  "job-bank"
+  "employment-insurance"
+  "dashboard"
+  "employment-life-events"
+  "shell"
+)
 
 fail=0
+
+hash_stdin() {
+  if command -v shasum > /dev/null 2>&1; then
+    shasum -a 256 | awk '{print $1}'
+  else
+    sha256sum | awk '{print $1}'
+  fi
+}
+
+# Signature of a repo's current working tree: HEAD commit + any
+# uncommitted changes to tracked files + the content of any untracked
+# (but not gitignored) files. Good enough to answer "would a fresh
+# `docker build .` in this repo produce different output than last
+# time" without actually running the build.
+repo_signature() {
+  local repo="$1"
+  {
+    git -C "$repo" rev-parse HEAD
+    git -C "$repo" diff HEAD --
+    git -C "$repo" ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do
+      printf '%s\n' "$f"
+      cat "$repo/$f" 2> /dev/null
+    done
+  } | hash_stdin
+}
+
+# Is every helm release for this step actually present and deployed?
+releases_present() {
+  local releases="$1"
+  local rel
+  for rel in $releases; do
+    helm status "$rel" --kube-context "$CONTEXT" > /dev/null 2>&1 || return 1
+  done
+  return 0
+}
 
 echo "=== Step 1: preflight ==="
 if ! docker info > /dev/null 2>&1; then
@@ -65,18 +158,80 @@ for repo in "${STEPS[@]}"; do
     exit 1
   fi
 done
+mkdir -p "$STATE_DIR"
 echo "Docker is running, all 6 sibling repos present."
 
 echo
-echo "=== Step 2: deploy each app in order ==="
+echo "=== Step 2: check disk space for Docker/kind builds ==="
+# NOTE: `df /` on the *host* only reflects real Docker disk pressure on
+# Linux, where dockerd talks to the host filesystem directly. On Docker
+# Desktop (macOS/Windows) all builds/images/the kind node itself live
+# inside a VM with its own separate virtual disk, completely disconnected
+# from host free space -- host `df` can read 100+GB free while the VM
+# backing Docker is 100% full. So: show `docker system df` for visibility,
+# but the disk that actually matters for `kind`-hosted workloads is the
+# kind node container's own root filesystem, checked directly via
+# `docker exec` when the node exists. Each app image is rebuilt under the
+# *same* mutable ":kind" tag every run, and `kind load docker-image`
+# leaves the previous, now-untagged image ID behind in the node's
+# containerd store instead of replacing it -- these accumulate silently
+# across runs (confirmed: 125 images / ~66GB on one cluster that had
+# never been pruned) until the node's disk fills and writes inside pods
+# start failing with "No space left on device" (surfaced first as Redis
+# refusing writes, then as 500s from whichever BFF touched it).
+docker system df
+
+NODE_CONTAINER="${CLUSTER_NAME}-control-plane"
+low_disk=0
+if docker exec "$NODE_CONTAINER" true > /dev/null 2>&1; then
+  read -r avail_kb used_pct < <(docker exec "$NODE_CONTAINER" df -Pk / | awk 'NR==2 {gsub("%","",$5); print $4, $5}')
+  avail_gb=$((avail_kb / 1024 / 1024))
+  echo "kind node ($NODE_CONTAINER) root filesystem: ${avail_gb}GB free (${used_pct}% used)"
+  [ "$avail_gb" -lt "$DOCKER_MIN_FREE_GB" ] && low_disk=1
+else
+  echo "kind node not up yet (first run creates it in Step 3) -- nothing to check there yet."
+fi
+
+if [ "$low_disk" -eq 1 ]; then
+  echo "low disk on the kind node (threshold ${DOCKER_MIN_FREE_GB}GB) -- pruning Docker build cache/dangling images plus unreferenced images inside the node..."
+  docker builder prune -f
+  docker image prune -f
+  docker exec "$NODE_CONTAINER" crictl rmi --prune > /dev/null 2>&1 || true
+  avail_kb=$(docker exec "$NODE_CONTAINER" df -Pk / | awk 'NR==2 {print $4}')
+  avail_gb=$((avail_kb / 1024 / 1024))
+  echo "after prune: ${avail_gb}GB free on the kind node."
+  if [ "$avail_gb" -lt "$DOCKER_MIN_FREE_GB" ]; then
+    echo "warning: still under ${DOCKER_MIN_FREE_GB}GB free on the kind node after pruning build cache/dangling/unreferenced images -- an in-use image can't be pruned out from under a running pod. Recreate the node for a full reclaim: 'kind delete cluster --name $CLUSTER_NAME' then re-run this script (safe -- see the header comment), or 'docker system prune -a --volumes' by hand for a deeper host-level clean (not run automatically here since it can remove tagged images/volumes from other projects)." >&2
+  fi
+fi
+
+echo
+echo "=== Step 3: deploy each app in order ==="
 for i in "${!STEPS[@]}"; do
   repo="${STEPS[$i]}"
+  backend="${STEP_BACKENDS[$i]}"
+  releases="${STEP_RELEASES[$i]}"
   echo
   echo "--- $repo ---"
+
+  if ! (cd "$repo" && git pull --ff-only); then
+    echo "!! $repo git pull failed" >&2
+    fail=1
+    continue
+  fi
+
+  sig="$(repo_signature "$repo")"
+  prev_sig=""
+  [ -f "$STATE_DIR/$repo.sha" ] && prev_sig="$(cat "$STATE_DIR/$repo.sha")"
+
+  if [ "$FORCE" -eq 0 ] && [ -n "$prev_sig" ] && [ "$sig" = "$prev_sig" ] && releases_present "$releases"; then
+    echo "up to date -- no changes since last deploy and release(s) [$releases] already running. Skipping build+deploy (use -f to force)."
+    continue
+  fi
+
   (
     set -e
     cd "$repo"
-    git pull --ff-only
     CLUSTER_NAME="$CLUSTER_NAME" bash tools/deploy-local.sh
   )
   if [ $? -ne 0 ]; then
@@ -84,8 +239,8 @@ for i in "${!STEPS[@]}"; do
     fail=1
     continue
   fi
+  echo "$sig" > "$STATE_DIR/$repo.sha"
 
-  backend="${STEP_BACKENDS[$i]}"
   if [ -n "$backend" ]; then
     # `kind load docker-image` overwrites the "kind" tag's content in
     # containerd, but a pod already running under that tag never
@@ -108,11 +263,11 @@ if [ "$fail" -ne 0 ]; then
 fi
 
 echo
-echo "=== Step 3: confirm every pod is Running ==="
+echo "=== Step 4: confirm every pod is Running ==="
 kubectl --context "$CONTEXT" get pods
 
 echo
-echo "=== Step 4: prove each BFF persists through a pod restart (real Redis, not in-memory) ==="
+echo "=== Step 5: prove each BFF persists through a pod restart (real Redis, not in-memory) ==="
 
 check_persistence() {
   local label=$1 host=$2 create_path=$3 create_body=$4 read_path=$5 jq_filter=$6
