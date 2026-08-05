@@ -63,6 +63,24 @@ all 5 apps already — this is what's left, not a redesign:
       accepting a `CLUSTER_NAME` env override instead of hardcoding `kind`,
       needed so `mfe-pot/tools/deploy-local.sh` (new, see below) can target
       the real cluster name when orchestrating all 6 repos at once.
+- [ ] `mfe-pot/tools/deploy-local.sh`'s conditional build/deploy (skip a
+      sibling repo's build+deploy step when its git tree — HEAD +
+      uncommitted/untracked changes — matches what was last successfully
+      deployed and its helm release(s) are still up) is hand-rolled bash
+      plus a git-diff hash, not a real target-based build system.
+      Considered 2026-08-05: a lightweight task runner (`Task`/go-task, or
+      `Just`) could replace it with declared `build`/`package`/`deploy`
+      targets and proper input/output up-to-date checks — closer to what
+      `make` does, but nicer syntax — worth it only if the current bash
+      approach starts feeling fragile or grows more special cases.
+      Deliberately not reaching for something heavier (Bazel, tying the 6
+      repos together via a shared Nx graph) since that cuts against the
+      repos' intentional independence (see `mfe-pot-platform/CLAUDE.md`'s
+      "Monorepo → per-app repos"). Not blocking anything today — Docker's
+      own layer cache already makes the actual image builds cheap when
+      unchanged (confirmed: a no-op strapi rebuild is ~1.2s, every layer
+      CACHED), so this would only save the surrounding orchestration
+      overhead (git pull, `helm upgrade --wait`, ingress polling).
 - [ ] `mfe-pot-platform`'s `shared-ui-gcds` build fails in a fresh CI
       checkout with `TS5062: Substitution '.../core' in pattern
       '@tn4consulting/shared-auth/core' can have at most one '*' character`
