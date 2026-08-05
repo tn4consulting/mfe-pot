@@ -248,6 +248,19 @@ Not started. See `docs/plans/mfe-pot-initial-design.md`'s
         usage exists anywhere yet, so there's no CLDR-formatting assumption
         to fight — a genuine plus, since `cr`/`iu` lack full CLDR data.
 
+## Observability
+
+- [ ] OpenTelemetry across the 3 BFFs (and ideally the frontends) with a
+      propagated trace ID, so a single citizen action can be followed across
+      service boundaries — e.g. `mfe-pot-employment-life-events` calling into
+      `dashboard-bff`/`job-bank-bff`/`employment-insurance-bff`. No
+      logging/tracing/correlation-ID infrastructure exists anywhere in the
+      family today (checked all 3 BFFs and all 5 frontend repos — no
+      `winston`/`pino`/logger, no `x-request-id` or correlation-ID handling).
+      Natural fit alongside the "BFFs must not call each other" design
+      principle above, since tracing is what would make cross-BFF/backend
+      call chains debuggable once they exist.
+
 ## Nx build performance
 
 - [ ] Set up Nx Remote Cache to share build/test/lint cache across the team
