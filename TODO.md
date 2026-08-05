@@ -71,6 +71,46 @@ all 5 apps already — this is what's left, not a redesign:
       regression. `publish-shared-packages.yml` publishes `shared-ui-scds`
       before `shared-ui-gcds` specifically so this doesn't block the former.
 
+## Stale Firebase-era functionality to remove
+
+Firebase Hosting itself was already retired (`firebase.json`/`.firebaserc`
+gone, `mfe-pot-platform/CLAUDE.md`'s "Hosting" section says so) but a few
+things built specifically to cope with Firebase's constraints (can't run
+Strapi, so needed baked-in static fallbacks) are still sitting in the
+codebase now that the target hosting environment is Kubernetes (AKS in the
+cloud, `kind` locally — both of which run Strapi directly, including for
+local dev):
+
+- [ ] `mfe-pot-platform/libs/shared/remote-registry`'s
+      `StaticRemoteRegistryProvider` — genuinely dead code, not just
+      redundant: nothing constructs it anymore (`mfe-pot-shell/apps/shell/src/main.ts`
+      only wires up the Strapi-backed `StrapiRemoteRegistryProvider`). Its own
+      doc comment still says "Firebase-hosted demo: Firebase Hosting can't
+      run Strapi...". Safe to delete outright, plus the interface/export
+      wiring pointing at it.
+- [ ] `StaticContentClient` (`mfe-pot-platform/libs/shared/content-client`) —
+      unlike the above, still live: `createContentClient()` in each of
+      `mfe-pot-dashboard`/`mfe-pot-job-bank`/`mfe-pot-employment-insurance`/
+      `mfe-pot-employment-life-events`'s `content-client.token.ts` falls back
+      to it when `strapiBaseUrl` is undefined, with the baked `STATIC_CONTENT`
+      map explicitly commented "Baked fallback for the Firebase-hosted build
+      (no live CMS there)". Needs a decision, not just a delete: now that
+      Strapi is deployed alongside every app (cloud and local `kind` alike),
+      is `strapiBaseUrl` ever legitimately undefined at runtime, or was that
+      only ever a Firebase-shaped code path? If the latter, remove
+      `StaticContentClient`, `STATIC_CONTENT`, and the fallback branch in all
+      4 apps; if there's still a real "Strapi unreachable" degrade case worth
+      keeping, keep it but reword the comments so they stop citing Firebase.
+- [ ] `mfe-pot-platform/.claude/settings.local.json` still allowlists
+      `Bash(firebase deploy *)` — dead permission entry, no `firebase` CLI
+      command exists to run anymore.
+- [ ] Lower priority, cosmetic only: `tools/docker/nginx.conf` (same file
+      copied into all 5 frontend-app repos) and each repo's `.gitignore`
+      still reference "the old firebase.json"/"retired Firebase Hosting" in
+      comments. Accurate history, not broken functionality — fine to leave,
+      but worth a pass if these ever get confusing next to actual dead-code
+      removal above.
+
 ## `publish-shared-packages.yml` — now actually working end to end
 
 Fixed a chain of pre-existing bugs that had silently kept this workflow
