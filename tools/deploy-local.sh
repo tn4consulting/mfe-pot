@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
 # Stands up the whole mfe-pot family on a single local kind cluster:
-# mfe-pot-platform's shared infra (Strapi + the session-cache Redis
-# instance), then the 3 BFF-owning apps (job-bank, employment-insurance,
-# dashboard), then the 2 frontend-only apps (employment-life-events,
-# shell). Each step just delegates to that sibling repo's own
-# tools/deploy-local.sh -- this script's only job is running them in a
-# sensible order against one shared cluster and proving the result
-# actually works end to end afterwards.
+# mfe-pot-platform's shared infra (Strapi, the session-cache Redis
+# instance, and mock-idp), then the 3 BFF-owning apps (job-bank,
+# employment-insurance, dashboard), then the 2 frontend-only apps
+# (employment-life-events, shell). Each step just delegates to that
+# sibling repo's own tools/deploy-local.sh -- this script's only job is
+# running them in a sensible order against one shared cluster and
+# proving the result actually works end to end afterwards.
 #
 # Run from the mfe-pot meta repo directory (the parent of all the
 # sibling checkouts -- see mfe-pot.code-workspace for the expected
@@ -102,7 +102,7 @@ STEP_BACKENDS=(
 # before trusting a "nothing changed" skip (e.g. after the cluster was
 # torn down and recreated without this script's state being reset).
 STEP_RELEASES=(
-  "session-cache strapi"
+  "session-cache strapi mock-idp"
   "job-bank"
   "employment-insurance"
   "dashboard"
