@@ -9,6 +9,41 @@ call-outs in `mfe-pot-platform/CLAUDE.md` and the Demo Narrative section of
 those docs as items land, and prune items here once they're actually done —
 don't let this drift into a stale wishlist.
 
+## Angular → React migration — done (2026-08)
+
+All 5 frontends converted from Angular to React, one app at a time
+(smallest first: `employment-life-events` → `shell` → `employment-insurance`
+→ `dashboard`), with Angular removed entirely rather than kept as a
+fallback — matching job-bank, which was React from the start and became the
+reference pattern every other app's conversion copied. Full plan and
+rationale in `docs/plans/20260805-1200-angular-to-react-migration.md`.
+Real, hard-won lessons worth knowing if you're debugging something that
+smells like a leftover from either era:
+- The classic-vs-automatic JSX transform split (`jsxFactory: React.createElement`
+  required for anything bundled as a federation-shared/exposed chunk,
+  since `react/jsx-runtime` can't resolve once federation-shared) was the
+  single hardest-won lesson, hit and fixed independently in shell,
+  `shared-federation-runtime`, and every converted remote before it was
+  applied proactively everywhere.
+- A cross-remote widget-loader Context silently resolving to `undefined`
+  (no error, just the "unavailable" fallback rendering forever) has two
+  independent possible causes now, not one: the Context provider missing
+  above `RemoteRouteHost` in `apps/shell/src/app/routes.tsx`, **or** a
+  host's own hand-written `esbuild` entry bundle not marking the Context's
+  owning package `external` (found live while verifying dashboard's own
+  conversion — see `mfe-pot-shell`'s CLAUDE.md and commit history).
+- `mfe-pot-platform`'s `libs/shared/ui-gcds` (the Angular `MscaAppFrame`
+  wrapper) and `libs/shared/ui-scds` (the Angular ng-packagr wrapper
+  around `ui-scds-core`) were deleted outright once every consumer
+  converted — zero consumers left anywhere in the family, confirmed by
+  grep across all 6 repos before deleting, not just assumed.
+- Old Angular-shaped major versions of `shared-federation-runtime` (0.3.0)
+  and `shared-i18n` (0.1.x) stay published on GitHub Packages as
+  historical artifacts — nothing currently depends on them, but they
+  weren't unpublished/deprecated on the registry itself as part of this
+  cleanup (a registry action, more disruptive than a repo change — flagged
+  here rather than done unilaterally).
+
 ## Hosting / CI (in progress — see `mfe-pot-platform/CLAUDE.md`'s "Hosting: Kubernetes + Helm" section for the full story)
 
 The Docker-image + Helm-chart pattern is proven and validated on `kind` for
@@ -59,18 +94,6 @@ all 5 apps already — this is what's left, not a redesign:
       unchanged (confirmed: a no-op strapi rebuild is ~1.2s, every layer
       CACHED), so this would only save the surrounding orchestration
       overhead (git pull, `helm upgrade --wait`, ingress polling).
-- [ ] `mfe-pot-platform`'s `shared-ui-gcds` build fails in a fresh CI
-      checkout with `TS5062: Substitution '.../core' in pattern
-      '@tn4consulting/shared-auth/core' can have at most one '*' character`
-      (ng-packagr's full-compilation-mode build against
-      `tsconfig.base.json`'s `@tn4consulting/shared-auth/core` path
-      mapping). Discovered getting `publish-shared-packages.yml` to actually
-      run end to end for the first time (see below) — every prior run of
-      that workflow had failed earlier in the job, so this is likely the
-      first time `shared-ui-gcds:build` has run in CI at all, not a
-      regression. `publish-shared-packages.yml` publishes `shared-ui-scds`
-      before `shared-ui-gcds` specifically so this doesn't block the former.
-
 ## Stale Firebase-era functionality to remove
 
 Firebase Hosting itself was already retired (`firebase.json`/`.firebaserc`
@@ -197,10 +220,15 @@ Not started. See `docs/plans/mfe-pot-initial-design.md`'s
       re-rendering in French simultaneously inside
       `mfe-pot-employment-life-events`.
 - [ ] Payment-history widget (embedded in `mfe-pot-employment-life-events`,
-      sourced from `mfe-pot-dashboard`) still renders static English mock
-      data — heading, benefit names, dates, currency — none of it wired to
-      Transloco/locale-aware formatting yet. A prerequisite for the bilingual
-      demo beat above.
+      sourced from `mfe-pot-dashboard`) has its heading/table labels/status
+      text CMS-driven and bilingual now (`dashboard.payment-history.*` keys
+      — closed alongside the same fix for job-bank's and
+      employment-insurance's own feature-level headings/labels, previously
+      hardcoded English). Still outstanding, narrower than before: currency
+      formatting (`$${amount.toFixed(2)}`, no `Intl.NumberFormat`) and
+      date formatting are locale-naive, and the payment *values themselves*
+      (benefit names, dates, amounts) are still English-shaped test data —
+      a prerequisite for the full bilingual demo beat above.
 
 ## Language support
 
@@ -213,13 +241,16 @@ Not started. See `docs/plans/mfe-pot-initial-design.md`'s
         manual updates: `mfe-pot-platform/libs/shared/content-client`'s
         `ContentClient` interface, `StrapiContentClient`,
         `StaticContentClient`, and `mfe-pot-dashboard`'s static content
-        fallback map (`apps/dashboard/src/app/app.ts`).
-      - The shell's language switcher (`MscaAppFrame` in
-        `mfe-pot-platform/libs/shared/ui-gcds`) is a strict binary toggle
-        (`otherLocale`/`switchLocale`), not a picker — needs to become a
-        dropdown/menu for 4 languages. GCDS has no built-in multi-language
-        picker to reuse (`gcds-header`'s `toggle` slot and `gcds-lang-toggle`
-        are both designed for exactly one "other" language).
+        fallback map (`apps/dashboard/src/app/App.tsx`). Note: `SUPPORTED_LOCALES`
+        now lives in `mfe-pot-platform/libs/shared/locale-sync/src/lib/locale-sync.ts`,
+        its own package since the React migration (Phase 0) — not inside
+        `shared-i18n` anymore, though `shared-i18n` still re-exports it.
+      - The shell's language switcher (`AppFrame.tsx`,
+        `mfe-pot-shell/apps/shell/src/app/`) is a strict binary toggle, not
+        a picker — needs to become a dropdown/menu for 4 languages. GCDS has
+        no built-in multi-language picker to reuse (`gcds-header`'s
+        `toggle` slot and `gcds-lang-toggle` are both designed for exactly
+        one "other" language).
       - **Hard ceiling**: `@gcds-core/components` (v1.4.0) is officially
         bilingual-only. Its `assignLanguage()` util
         (`dist/collection/utils/utils.js`) collapses any non-`fr*` lang to
@@ -229,8 +260,8 @@ Not started. See `docs/plans/mfe-pot-initial-design.md`'s
         GCDS's own internal chrome (form validation messages, built-in ARIA
         text) to render in Cree/Inuktitut without forking/patching upstream
         (`cds-snc/gcds-components`) — check upstream GitHub issues before
-        committing to that. App-level Transloco-driven content can still
-        switch fully; GCDS's own internal strings can't.
+        committing to that. App-level `useTranslations`-driven content can
+        still switch fully; GCDS's own internal strings can't.
       - 10 new translation files needed (`cr.json`/`iu.json` per app,
         matching the existing `public/assets/i18n/{en,fr}.json` pairs in
         each app repo) — the loader itself is generic and needs no code
