@@ -94,45 +94,44 @@ all 5 apps already — this is what's left, not a redesign:
       unchanged (confirmed: a no-op strapi rebuild is ~1.2s, every layer
       CACHED), so this would only save the surrounding orchestration
       overhead (git pull, `helm upgrade --wait`, ingress polling).
-## Stale Firebase-era functionality to remove
+## Stale Firebase-era functionality — resolved (2026-08-06)
 
 Firebase Hosting itself was already retired (`firebase.json`/`.firebaserc`
-gone, `mfe-pot-platform/CLAUDE.md`'s "Hosting" section says so) but a few
-things built specifically to cope with Firebase's constraints (can't run
-Strapi, so needed baked-in static fallbacks) are still sitting in the
-codebase now that the target hosting environment is Kubernetes (AKS in the
-cloud, `kind` locally — both of which run Strapi directly, including for
-local dev):
+gone, `mfe-pot-platform/CLAUDE.md`'s "Hosting" section says so). A few things
+built specifically to cope with Firebase's constraints (can't run Strapi, so
+needed baked-in static fallbacks) were still sitting in the codebase; audited
+and closed out:
 
-- [ ] `mfe-pot-platform/libs/shared/remote-registry`'s
-      `StaticRemoteRegistryProvider` — genuinely dead code, not just
-      redundant: nothing constructs it anymore (`mfe-pot-shell/apps/shell/src/main.ts`
-      only wires up the Strapi-backed `StrapiRemoteRegistryProvider`). Its own
-      doc comment still says "Firebase-hosted demo: Firebase Hosting can't
-      run Strapi...". Safe to delete outright, plus the interface/export
-      wiring pointing at it.
-- [ ] `StaticContentClient` (`mfe-pot-platform/libs/shared/content-client`) —
-      unlike the above, still live: `createContentClient()` in each of
-      `mfe-pot-dashboard`/`mfe-pot-job-bank`/`mfe-pot-employment-insurance`/
-      `mfe-pot-employment-life-events`'s `content-client.token.ts` falls back
-      to it when `strapiBaseUrl` is undefined, with the baked `STATIC_CONTENT`
-      map explicitly commented "Baked fallback for the Firebase-hosted build
-      (no live CMS there)". Needs a decision, not just a delete: now that
-      Strapi is deployed alongside every app (cloud and local `kind` alike),
-      is `strapiBaseUrl` ever legitimately undefined at runtime, or was that
-      only ever a Firebase-shaped code path? If the latter, remove
-      `StaticContentClient`, `STATIC_CONTENT`, and the fallback branch in all
-      4 apps; if there's still a real "Strapi unreachable" degrade case worth
-      keeping, keep it but reword the comments so they stop citing Firebase.
-- [ ] `mfe-pot-platform/.claude/settings.local.json` still allowlists
-      `Bash(firebase deploy *)` — dead permission entry, no `firebase` CLI
-      command exists to run anymore.
-- [ ] Lower priority, cosmetic only: `tools/docker/nginx.conf` (same file
-      copied into all 5 frontend-app repos) and each repo's `.gitignore`
-      still reference "the old firebase.json"/"retired Firebase Hosting" in
-      comments. Accurate history, not broken functionality — fine to leave,
-      but worth a pass if these ever get confusing next to actual dead-code
-      removal above.
+- [x] `mfe-pot-platform/libs/shared/remote-registry`'s
+      `StaticRemoteRegistryProvider` was genuinely dead code — confirmed via
+      grep across all 6 repos, nothing imported `@tn4consulting/shared-remote-registry`
+      at all (`mfe-pot-shell/apps/shell/src/main.tsx` inlines its own registry
+      logic instead — see `mfe-pot-platform/CLAUDE.md`'s bare-specifier
+      gotcha). Deleted the class, its spec, and the export in
+      `libs/shared/remote-registry/src/index.ts`; `nx test`/`build` still
+      green for the lib.
+- [x] `StaticContentClient` (`mfe-pot-platform/libs/shared/content-client`) —
+      **kept, not deleted**: confirmed it's genuinely load-bearing today, not
+      a Firebase leftover. Every app's own `*.spec.tsx` (`App.spec.tsx` in all
+      5 apps, `ReportingStatus.spec.tsx` in employment-insurance) deliberately
+      mocks `loadRuntimeConfig` to return `strapiBaseUrl: undefined`
+      specifically so content comes from `StaticContentClient`'s baked
+      fallback instead of needing a live Strapi or a fetch mock for CMS
+      content — required by `mfe-pot-platform/CLAUDE.md`'s "no dependency on
+      real external services for tests" rule. Only the class's own doc
+      comment (platform repo) still said "Firebase-hosted demo" — reworded to
+      describe the actual current reason (test isolation) instead. The 4 app
+      repos' own `STATIC_CONTENT` comments turned out to already have been
+      reworded away from Firebase phrasing at some earlier point — this
+      item's original "Baked fallback for the Firebase-hosted build" quote
+      was stale by the time this was picked up.
+- [x] `mfe-pot-platform/.claude/settings.local.json`'s dead
+      `Bash(firebase deploy *)` allowlist entry removed.
+- [ ] Lower priority, cosmetic only, deliberately left as-is:
+      `tools/docker/nginx.conf` (same file copied into all 5 frontend-app
+      repos) and each repo's `.gitignore` still reference "the old
+      firebase.json"/"retired Firebase Hosting" in comments. Accurate
+      history, not broken functionality.
 
 ## `publish-shared-packages.yml` — now actually working end to end
 
