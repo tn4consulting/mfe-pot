@@ -214,6 +214,15 @@ for i in "${!STEPS[@]}"; do
   echo
   echo "--- $repo ---"
 
+  # `git pull`'s own "Already up to date." here means only "this repo's
+  # local branch matches its remote" -- it says nothing about whether a
+  # rebuild is needed. That's a genuinely separate question, answered by
+  # the deploy-state signature check right below, and the two "up to
+  # date"-sounding messages back to back read as contradictory when the
+  # rebuild check decides to proceed anyway (e.g. because of local
+  # commits never pushed to the remote, which `git pull` can't see at
+  # all). Labelled explicitly so the two checks don't look like one.
+  echo "checking $repo's remote for updates:"
   if ! (cd "$repo" && git pull --ff-only); then
     echo "!! $repo git pull failed" >&2
     fail=1
@@ -225,8 +234,18 @@ for i in "${!STEPS[@]}"; do
   [ -f "$STATE_DIR/$repo.sha" ] && prev_sig="$(cat "$STATE_DIR/$repo.sha")"
 
   if [ "$FORCE" -eq 0 ] && [ -n "$prev_sig" ] && [ "$sig" = "$prev_sig" ] && releases_present "$releases"; then
-    echo "up to date -- no changes since last deploy and release(s) [$releases] already running. Skipping build+deploy (use -f to force)."
+    echo "deploy-state check: up to date -- no changes since last deploy and release(s) [$releases] already running. Skipping build+deploy (use -f to force)."
     continue
+  fi
+
+  if [ "$FORCE" -eq 1 ]; then
+    echo "deploy-state check: -f/--force passed, rebuilding regardless."
+  elif [ -z "$prev_sig" ]; then
+    echo "deploy-state check: no prior successful deploy recorded for $repo -- building."
+  elif [ "$sig" != "$prev_sig" ]; then
+    echo "deploy-state check: working tree changed since the last deploy (commits, staged/unstaged edits, or untracked files) -- building."
+  else
+    echo "deploy-state check: working tree unchanged, but release(s) [$releases] aren't all present on the cluster -- building."
   fi
 
   (
