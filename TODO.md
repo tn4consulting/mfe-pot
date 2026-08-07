@@ -26,9 +26,20 @@ was no collision to disambiguate there. `mock-idp`'s allowlist, Strapi's
 remote directory (`REMOTE_*_URL` env vars + seeded `name` fields), and both
 shells' `remoteName=`/`remotes` map keys all updated to match. Verified per
 repo: `nx run-many -t lint,test,build --all` green and each affected image
-builds; full cross-repo verification (a live `kind` redeploy of all 8
-releases, confirming every hostname serves and federation loading resolves
-end to end) done as the last step of this change.
+builds. Full cross-repo verification — a live `kind` redeploy of all 9
+releases — confirmed every hostname serves, every remote's `remoteEntry.json`
+reports the renamed federation identity, and both shells' injected
+`runtimeConfig.remotes` correctly key by the new names. Redeploying surfaced
+two real bugs, both fixed: (1) the 4 renamed remotes' old-named Helm releases
+were still on the cluster and blocked the new releases from claiming
+already-existing resources with the same names (BFF ConfigMaps, one Ingress)
+— fixed by uninstalling the orphaned old releases first; (2) `mfe-pot-platform`'s
+own `tools/deploy-local.sh` force-restarts `mock-idp` after a rebuild but was
+missing the identical restart for `strapi` — a real, pre-existing gap (not
+new from this change) that let a rebuilt-and-loaded image sit unserved
+indefinitely, caught because it made Strapi's remote directory silently
+serve stale pre-rename data. Both fixes are now in place; Strapi's directory
+confirmed showing exactly the 4 renamed entries with no stale duplicates.
 
 ## Second host app: mfe-pot-job-bank-shell — done (2026-08)
 
