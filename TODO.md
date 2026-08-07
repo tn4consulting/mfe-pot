@@ -1,6 +1,6 @@
 # TODO
 
-Outstanding work across the whole mfe-pot family (all 6 repos). Lives here,
+Outstanding work across the whole mfe-pot family (all 7 repos). Lives here,
 not in any one sibling repo, because most of what's left touches more than
 one repo (hosting/CI, naming, docs, demo narrative) and this meta repo is the
 one place that sits above all of them. Pulled originally from the "Known gap"
@@ -8,6 +8,33 @@ call-outs in `mfe-pot-platform/CLAUDE.md` and the Demo Narrative section of
 `docs/plans/mfe-pot-initial-design.md`. Update this alongside
 those docs as items land, and prune items here once they're actually done —
 don't let this drift into a stale wishlist.
+
+## Second host app: mfe-pot-job-bank-shell — done (2026-08)
+
+Proved the Native Federation pattern generalizes to more than one host app,
+not just a single shell. `mfe-pot-shell` was renamed to `mfe-pot-msca-shell`
+in place (same git history, every internal identifier cascaded — Nx project
+name, federation name, PKCE client ID, Docker image tag, Helm chart/
+release/Ingress names, CI, deploy scripts), and a new sibling repo,
+`mfe-pot-job-bank-shell`, was scaffolded from it as a second, minimal host
+composing only the job-bank remote's own `./Component` under Job-Bank
+branding — no sidebar nav (one destination, nothing to navigate between),
+no cross-remote widget-loader Contexts, distinct identity end to end
+(dev port 4205, Ingress host, Helm release, PKCE client ID). Both hosts
+share one `mock-idp` (`ALLOWED_REDIRECT_URI_ORIGINS` now lists both
+origins) and, for msca-shell, the same 4 remotes as before — behavior
+there is otherwise unchanged. Full design doc:
+`docs/plans/20260807-1500-second-shell-host-proof-of-concept.md`.
+- **What's proven**: the pattern mechanically works for a second,
+  independently-branded, independently-deployed host app sharing the
+  platform's infra (mock-idp, Strapi, the federation-shared singletons)
+  with the original host — new repo, new Helm release, new Ingress host,
+  distinct PKCE client, all verified with `nx run-many -t lint,test,build
+  --all` green and a live `kind` deployment of both simultaneously.
+- **What's not yet proven**: sustained concurrent load against one shared
+  `mock-idp`/Strapi from two hosts, or a host composing more than one
+  remote while also being a minimal-scope PoC (job-bank-shell deliberately
+  stayed single-remote to keep the proof narrow).
 
 ## Angular → React migration — done (2026-08)
 
@@ -28,10 +55,10 @@ smells like a leftover from either era:
 - A cross-remote widget-loader Context silently resolving to `undefined`
   (no error, just the "unavailable" fallback rendering forever) has two
   independent possible causes now, not one: the Context provider missing
-  above `RemoteRouteHost` in `apps/shell/src/app/routes.tsx`, **or** a
+  above `RemoteRouteHost` in `apps/msca-shell/src/app/routes.tsx`, **or** a
   host's own hand-written `esbuild` entry bundle not marking the Context's
   owning package `external` (found live while verifying dashboard's own
-  conversion — see `mfe-pot-shell`'s CLAUDE.md and commit history).
+  conversion — see `mfe-pot-msca-shell`'s CLAUDE.md and commit history).
 - `mfe-pot-platform`'s `libs/shared/ui-gcds` (the Angular `MscaAppFrame`
   wrapper) and `libs/shared/ui-scds` (the Angular ng-packagr wrapper
   around `ui-scds-core`) were deleted outright once every consumer
@@ -104,9 +131,9 @@ and closed out:
 
 - [x] `mfe-pot-platform/libs/shared/remote-registry`'s
       `StaticRemoteRegistryProvider` was genuinely dead code — confirmed via
-      grep across all 6 repos, nothing imported `@tn4consulting/shared-remote-registry`
-      at all (`mfe-pot-shell/apps/shell/src/main.tsx` inlines its own registry
-      logic instead — see `mfe-pot-platform/CLAUDE.md`'s bare-specifier
+      grep across all 6 repos (at the time), nothing imported `@tn4consulting/shared-remote-registry`
+      at all (`mfe-pot-msca-shell/apps/msca-shell/src/main.tsx` inlines its
+      own registry logic instead — see `mfe-pot-platform/CLAUDE.md`'s bare-specifier
       gotcha). Deleted the class, its spec, and the export in
       `libs/shared/remote-registry/src/index.ts`; `nx test`/`build` still
       green for the lib.
@@ -187,7 +214,7 @@ to `shared-ui-scds`, the change that surfaced them:
 Not started. See `docs/plans/mfe-pot-initial-design.md`'s
 "Demo Narrative & Experience" section for the full specifics.
 
-- [ ] Siloed-mode toggle in `mfe-pot-shell` — disables the cross-service calls
+- [ ] Siloed-mode toggle in `mfe-pot-msca-shell` — disables the cross-service calls
       `mfe-pot-employment-life-events`/`dashboard-bff` normally
       make, so the citizen re-enters details separately and sees three
       disconnected status pages. The "before" picture for the demo.
@@ -244,8 +271,8 @@ Not started. See `docs/plans/mfe-pot-initial-design.md`'s
         now lives in `mfe-pot-platform/libs/shared/locale-sync/src/lib/locale-sync.ts`,
         its own package since the React migration (Phase 0) — not inside
         `shared-i18n` anymore, though `shared-i18n` still re-exports it.
-      - The shell's language switcher (`AppFrame.tsx`,
-        `mfe-pot-shell/apps/shell/src/app/`) is a strict binary toggle, not
+      - Each host's language switcher (`AppFrame.tsx`,
+        `mfe-pot-msca-shell/apps/msca-shell/src/app/`) is a strict binary toggle, not
         a picker — needs to become a dropdown/menu for 4 languages. GCDS has
         no built-in multi-language picker to reuse (`gcds-header`'s
         `toggle` slot and `gcds-lang-toggle` are both designed for exactly
@@ -305,7 +332,7 @@ are duplicates of others (different crop, same content):
 `notification-settings.png` ≡ `inbox.png`, `view-my-payments.png` ≡
 `dashboard.png` — ignore those two. That leaves 6 distinct concepts:
 dashboard, profile, inbox, benefit-application-status,
-have-a-representative, omnichannel-support. Dashboard is done; `mfe-pot-shell`
+have-a-representative, omnichannel-support. Dashboard is done; `mfe-pot-msca-shell`
 has no local routes beyond the 4 federated remotes; no profile/inbox/
 notification UI exists anywhere.
 
@@ -319,7 +346,7 @@ once.
       boundary.
 - [ ] Inbox screen (`inbox.png`) — message list with program/date/has-PDF
       filters. No natural app owner yet identified; likely a new
-      `mfe-pot-shell`-level local route (global nav concern) backed by a
+      `mfe-pot-msca-shell`-level local route (global nav concern) backed by a
       not-yet-built service.
 - [ ] Have-a-representative / acting-on-behalf-of flow
       (`have-a-representative.png`) — deferred, needs real design: touches

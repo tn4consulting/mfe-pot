@@ -5,8 +5,12 @@
       "path": "mfe-pot-platform"
     },
     {
-      "name": "mfe-pot-shell",
-      "path": "mfe-pot-shell"
+      "name": "mfe-pot-msca-shell",
+      "path": "mfe-pot-msca-shell"
+    },
+    {
+      "name": "mfe-pot-job-bank-shell",
+      "path": "mfe-pot-job-bank-shell"
     },
     {
       "name": "mfe-pot-dashboard",

@@ -14,12 +14,14 @@ See `CLAUDE.md` for the full navigation notes this file summarizes.
 
 ## Architecture
 
-The project split from a single Nx monorepo into **6 independent repos**:
-one host ("shell") app, four benefit-domain frontends (each with its own
-BFF), and this meta repo tying them together for local multi-repo dev. All
-are federated at runtime via [Native Federation](https://www.npmjs.com/package/@angular-architects/native-federation) — the shell reads a
-runtime manifest and loads each app's remote entry, so the apps are
-independently deployable and are not built or versioned together.
+The project split from a single Nx monorepo into **7 independent repos**:
+two host ("shell") apps — `mfe-pot-msca-shell` and the minimal proof-of-
+concept `mfe-pot-job-bank-shell`, proving the federation pattern
+generalizes to more than one host — four benefit-domain frontends (each
+with its own BFF), and this meta repo tying them together for local
+multi-repo dev. All are federated at runtime via [Native Federation](https://www.npmjs.com/package/@angular-architects/native-federation) — each
+host reads a runtime manifest and loads its remotes' entry points, so the
+apps are independently deployable and are not built or versioned together.
 
 Non-negotiable requirements across every app repo: bilingual (EN/FR), WCAG
 2.2 AA, and the [GC Design System](https://design-system.alpha.canada.ca/) (GCDS). Full architecture rationale and
@@ -37,7 +39,8 @@ subagent worktree isolation.
 | Repo | Role |
 |---|---|
 | [mfe-pot-platform](https://github.com/tn4consulting/mfe-pot-platform) | The platform repo (formerly `mfe-app`). Home to `libs/shared/*` (published as `@tn4consulting/shared-*` packages), the composed `mfe-e2e` suite, Strapi, `platform-versions.json` (cross-repo version-alignment source of truth), and the two Helm library charts. |
-| [mfe-pot-shell](https://github.com/tn4consulting/mfe-pot-shell) | Host app: app frame, GC header/footer, language switcher, mock sign-in, runtime federation manifest reader. No BFF. |
+| [mfe-pot-msca-shell](https://github.com/tn4consulting/mfe-pot-msca-shell) | MSCA host app: app frame, GC header/footer, language switcher, mock sign-in, runtime federation manifest reader. Composes all 4 remotes. No BFF. |
+| [mfe-pot-job-bank-shell](https://github.com/tn4consulting/mfe-pot-job-bank-shell) | Second, minimal proof-of-concept host — composes only job-bank's `./Component`, no sidebar nav. No BFF. |
 | [mfe-pot-dashboard](https://github.com/tn4consulting/mfe-pot-dashboard) | + `dashboard-bff`. Cross-benefit overview, payment history, correspondence. |
 | [mfe-pot-job-bank](https://github.com/tn4consulting/mfe-pot-job-bank) | + `job-bank-bff`. Job search and apply. |
 | [mfe-pot-employment-insurance](https://github.com/tn4consulting/mfe-pot-employment-insurance) | + `employment-insurance-bff`. EI application, claim status, reporting. |
@@ -68,21 +71,22 @@ containers), see that repo's own README.
 
 ### First-time setup
 
-1. Clone this repo and all 5 app repos as **siblings** in one parent
+1. Clone this repo and all 6 app repos as **siblings** in one parent
    folder — this repo's own multi-root workspace file, and every app
    repo's `deploy-local.sh`, expect that exact layout:
    ```bash
    git clone git@github.com:tn4consulting/mfe-pot.git
    cd mfe-pot
    git clone git@github.com:tn4consulting/mfe-pot-platform.git
-   git clone git@github.com:tn4consulting/mfe-pot-shell.git
+   git clone git@github.com:tn4consulting/mfe-pot-msca-shell.git
+   git clone git@github.com:tn4consulting/mfe-pot-job-bank-shell.git
    git clone git@github.com:tn4consulting/mfe-pot-dashboard.git
    git clone git@github.com:tn4consulting/mfe-pot-job-bank.git
    git clone git@github.com:tn4consulting/mfe-pot-employment-insurance.git
    git clone git@github.com:tn4consulting/mfe-pot-employment-life-events.git
    ```
 2. Open `mfe-pot.code-workspace` in VS Code for a multi-root view across
-   all 6 repos.
+   all 7 repos.
 3. Export your GitHub token: `export NODE_AUTH_TOKEN=<your token>`.
 4. In `mfe-pot-platform`, install deps and sanity-check the build:
    ```bash
@@ -90,7 +94,7 @@ containers), see that repo's own README.
    pnpm install
    nx run-many -t lint,test,build --all
    ```
-5. In each of the 5 app repos, `pnpm install`.
+5. In each of the 6 app repos, `pnpm install`.
 
 ### Running the whole stack on `kind`
 
@@ -109,11 +113,12 @@ runtime-injected config, Ingress), not `nx serve`. Each repo's
    ```
 2. **Deploy each app repo**, in any order:
    ```bash
-   cd ../mfe-pot-shell                    && pnpm deploy:local
-   cd ../mfe-pot-dashboard                && pnpm deploy:local
-   cd ../mfe-pot-job-bank                 && pnpm deploy:local
-   cd ../mfe-pot-employment-insurance     && pnpm deploy:local
-   cd ../mfe-pot-employment-life-events   && pnpm deploy:local
+   cd ../mfe-pot-msca-shell                && pnpm deploy:local
+   cd ../mfe-pot-job-bank-shell             && pnpm deploy:local
+   cd ../mfe-pot-dashboard                 && pnpm deploy:local
+   cd ../mfe-pot-job-bank                  && pnpm deploy:local
+   cd ../mfe-pot-employment-insurance      && pnpm deploy:local
+   cd ../mfe-pot-employment-life-events    && pnpm deploy:local
    ```
    Each script builds that repo's image(s), loads them into `kind` (no
    registry round-trip), and `helm upgrade --install`s that repo's chart —
@@ -123,13 +128,16 @@ runtime-injected config, Ingress), not `nx serve`. Each repo's
 3. **Add every app's hostname to `/etc/hosts`** (`kind` has no real DNS):
    ```
    127.0.0.1 cms.mfe-pot.local
-   127.0.0.1 shell.mfe-pot.local
+   127.0.0.1 msca-shell.mfe-pot.local
+   127.0.0.1 job-bank-shell.mfe-pot.local
    127.0.0.1 dashboard.mfe-pot.local
    127.0.0.1 job-bank.mfe-pot.local
    127.0.0.1 employment-insurance.mfe-pot.local
    127.0.0.1 employment-life-events.mfe-pot.local
    ```
-4. Browse to `http://shell.mfe-pot.local` and sign in with the mock login,
+4. Browse to `http://msca-shell.mfe-pot.local` and sign in with the mock
+   login, and separately to `http://job-bank-shell.mfe-pot.local` to see
+   the second, minimal host — same shared `mock-idp`, distinct branding —
    or verify any single app with curl, e.g.
    `curl -H "Host: job-bank.mfe-pot.local" http://localhost/`. First visit
    to `http://cms.mfe-pot.local/admin` prompts you to create the Strapi

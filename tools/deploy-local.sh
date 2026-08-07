@@ -3,8 +3,10 @@
 # Stands up the whole mfe-pot family on a single local kind cluster:
 # mfe-pot-platform's shared infra (Strapi, the session-cache Redis
 # instance, and mock-idp), then the 3 BFF-owning apps (job-bank,
-# employment-insurance, dashboard), then the 2 frontend-only apps
-# (employment-life-events, shell). Each step just delegates to that
+# employment-insurance, dashboard), then the 3 frontend-only apps
+# (employment-life-events, msca-shell, job-bank-shell -- two independent
+# host apps sharing one mock-idp/Strapi, proving the federation pattern
+# generalizes to more than one shell). Each step just delegates to that
 # sibling repo's own tools/deploy-local.sh -- this script's only job is
 # running them in a sensible order against one shared cluster and
 # proving the result actually works end to end afterwards.
@@ -76,16 +78,18 @@ STATE_DIR="$(dirname "${BASH_SOURCE[0]}")/../.deploy-state"
 
 # name -> repo dir. Order matters: platform's shared infra first, then
 # the 3 BFF-owning apps (so dashboard-bff has something to fan out to
-# the moment it comes up), then the 2 frontend-only apps. Parallel
-# arrays, not associative arrays -- macOS's default /bin/bash (3.2)
-# predates `declare -A` support.
+# the moment it comes up), then the 3 frontend-only apps -- both host
+# apps last, since job-bank-shell only needs job-bank up and msca-shell
+# needs all 4 remotes up. Parallel arrays, not associative arrays --
+# macOS's default /bin/bash (3.2) predates `declare -A` support.
 STEPS=(
   "mfe-pot-platform"
   "mfe-pot-job-bank"
   "mfe-pot-employment-insurance"
   "mfe-pot-dashboard"
   "mfe-pot-employment-life-events"
-  "mfe-pot-shell"
+  "mfe-pot-msca-shell"
+  "mfe-pot-job-bank-shell"
 )
 # Backend deployment name per entry above, "" for frontend-only apps --
 # used to force a post-deploy rollout restart (see the comment below).
@@ -94,6 +98,7 @@ STEP_BACKENDS=(
   "job-bank-bff"
   "employment-insurance-bff"
   "dashboard-bff"
+  ""
   ""
   ""
 )
@@ -107,7 +112,8 @@ STEP_RELEASES=(
   "employment-insurance"
   "dashboard"
   "employment-life-events"
-  "shell"
+  "msca-shell"
+  "job-bank-shell"
 )
 
 fail=0
@@ -159,7 +165,7 @@ for repo in "${STEPS[@]}"; do
   fi
 done
 mkdir -p "$STATE_DIR"
-echo "Docker is running, all 6 sibling repos present."
+echo "Docker is running, all 7 sibling repos present."
 
 echo
 echo "=== Step 2: check disk space for Docker/kind builds ==="
@@ -354,10 +360,11 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 
-echo "=== All 6 apps deployed and verified. ==="
+echo "=== All 7 apps deployed and verified. ==="
 cat <<EOF
 
-  shell:                    http://shell.mfe-pot.local
+  msca-shell:               http://msca-shell.mfe-pot.local
+  job-bank-shell:           http://job-bank-shell.mfe-pot.local
   dashboard:                http://dashboard.mfe-pot.local
   job-bank:                 http://job-bank.mfe-pot.local
   employment-insurance:     http://employment-insurance.mfe-pot.local
