@@ -128,18 +128,25 @@ runtime-injected config, Ingress), not `nx serve`. Each repo's
 3. **Add every app's hostname to `/etc/hosts`** (`kind` has no real DNS):
    ```
    127.0.0.1 cms.mfe-pot.local
-   127.0.0.1 msca-shell.mfe-pot.local
-   127.0.0.1 job-bank-shell.mfe-pot.local
-   127.0.0.1 dashboard.mfe-pot.local
+   127.0.0.1 mock-idp.mfe-pot.local
+   127.0.0.1 msca.mfe-pot.local
    127.0.0.1 job-bank.mfe-pot.local
-   127.0.0.1 employment-insurance.mfe-pot.local
-   127.0.0.1 employment-life-events.mfe-pot.local
+   127.0.0.1 dashboard-mfe.mfe-pot.local
+   127.0.0.1 job-bank-mfe.mfe-pot.local
+   127.0.0.1 employment-insurance-mfe.mfe-pot.local
+   127.0.0.1 employment-life-events-mfe.mfe-pot.local
    ```
-4. Browse to `http://msca-shell.mfe-pot.local` and sign in with the mock
-   login, and separately to `http://job-bank-shell.mfe-pot.local` to see
+   The two host apps ("front doors") keep plain brand names —
+   `msca.mfe-pot.local`, `job-bank.mfe-pot.local` — while every internal
+   federated remote gets an `-mfe` suffix, since `job-bank.mfe-pot.local`
+   (the job-bank-shell host) and `job-bank-mfe.mfe-pot.local` (the job-bank
+   remote it composes) would otherwise be one hyphen apart and easy to
+   confuse.
+4. Browse to `http://msca.mfe-pot.local` and sign in with the mock
+   login, and separately to `http://job-bank.mfe-pot.local` to see
    the second, minimal host — same shared `mock-idp`, distinct branding —
    or verify any single app with curl, e.g.
-   `curl -H "Host: job-bank.mfe-pot.local" http://localhost/`. First visit
+   `curl -H "Host: job-bank-mfe.mfe-pot.local" http://localhost/`. First visit
    to `http://cms.mfe-pot.local/admin` prompts you to create the Strapi
    admin account (no default credentials are seeded).
 

@@ -328,22 +328,22 @@ check_persistence() {
 }
 
 check_persistence \
-  "job-bank-bff" "job-bank.mfe-pot.local" \
+  "job-bank-bff" "job-bank-mfe.mfe-pot.local" \
   "/api/applications" '{"jobId":"job-001","applicantSub":"rollout-check"}' \
   "/api/applications?applicantSub=rollout-check" "length"
 
 check_persistence \
-  "employment-insurance-bff" "employment-insurance.mfe-pot.local" \
+  "employment-insurance-bff" "employment-insurance-mfe.mfe-pot.local" \
   "/api/applications" '{"applicantSub":"rollout-check"}' \
   "/api/claims?applicantSub=rollout-check" ".id"
 
 echo
 echo "--- dashboard-bff (seeded persona, no create step needed) ---"
-before=$(curl -s -H "Host: dashboard.mfe-pot.local" "http://localhost/api/payments?sub=mock-citizen-001" | jq "length")
+before=$(curl -s -H "Host: dashboard-mfe.mfe-pot.local" "http://localhost/api/payments?sub=mock-citizen-001" | jq "length")
 echo "payments before restart: $before"
 kubectl --context "$CONTEXT" delete pod -l "app.kubernetes.io/name=dashboard-bff" --wait=true > /dev/null
 kubectl --context "$CONTEXT" wait --for=condition=ready pod -l "app.kubernetes.io/name=dashboard-bff" --timeout=60s > /dev/null
-after=$(curl -s -H "Host: dashboard.mfe-pot.local" "http://localhost/api/payments?sub=mock-citizen-001" | jq "length")
+after=$(curl -s -H "Host: dashboard-mfe.mfe-pot.local" "http://localhost/api/payments?sub=mock-citizen-001" | jq "length")
 echo "payments after restart:  $after"
 if [ "$before" = "$after" ] && [ -n "$before" ] && [ "$before" != "0" ] && [ "$before" != "null" ]; then
   echo "OK: seeded payments survived the pod restart -- reading from real Redis."
@@ -363,12 +363,12 @@ fi
 echo "=== All 7 apps deployed and verified. ==="
 cat <<EOF
 
-  msca-shell:               http://msca-shell.mfe-pot.local
-  job-bank-shell:           http://job-bank-shell.mfe-pot.local
-  dashboard:                http://dashboard.mfe-pot.local
-  job-bank:                 http://job-bank.mfe-pot.local
-  employment-insurance:     http://employment-insurance.mfe-pot.local
-  employment-life-events:   http://employment-life-events.mfe-pot.local
+  msca-shell:               http://msca.mfe-pot.local
+  job-bank-shell:           http://job-bank.mfe-pot.local
+  dashboard:                http://dashboard-mfe.mfe-pot.local
+  job-bank:                 http://job-bank-mfe.mfe-pot.local
+  employment-insurance:     http://employment-insurance-mfe.mfe-pot.local
+  employment-life-events:   http://employment-life-events-mfe.mfe-pot.local
   cms (Strapi):             http://cms.mfe-pot.local
 
 (all via the ingress-nginx controller on localhost -- add the above
