@@ -9,6 +9,27 @@ call-outs in `mfe-pot-platform/CLAUDE.md` and the Demo Narrative section of
 those docs as items land, and prune items here once they're actually done —
 don't let this drift into a stale wishlist.
 
+## Ingress hostname scheme: front doors get plain names, remotes get -mfe — done (2026-08)
+
+Following the second-host-app work below, front-door URLs were simplified
+to plain brand names (`msca.mfe-pot.local`, `job-bank.mfe-pot.local`) and
+every internal federated remote's Ingress host, repo name, Nx project name,
+federation identity, Docker image, and Helm chart/release were suffixed
+`-mfe` (`mfe-pot-job-bank-mfe`, `mfe-pot-dashboard-mfe`,
+`mfe-pot-employment-insurance-mfe`, `mfe-pot-employment-life-events-mfe`) —
+specifically so `job-bank-shell`'s front door and the `job-bank` remote it
+composes don't read as one hyphen apart. Each BFF and each remote's own
+business-domain naming (Nx `scope:*` tags, `libs/data-access`, CMS content
+keys, route paths like `/job-bank` within a shell) deliberately stayed
+un-suffixed — that's domain/UX identity, not hosting identity, and there
+was no collision to disambiguate there. `mock-idp`'s allowlist, Strapi's
+remote directory (`REMOTE_*_URL` env vars + seeded `name` fields), and both
+shells' `remoteName=`/`remotes` map keys all updated to match. Verified per
+repo: `nx run-many -t lint,test,build --all` green and each affected image
+builds; full cross-repo verification (a live `kind` redeploy of all 8
+releases, confirming every hostname serves and federation loading resolves
+end to end) done as the last step of this change.
+
 ## Second host app: mfe-pot-job-bank-shell — done (2026-08)
 
 Proved the Native Federation pattern generalizes to more than one host app,
@@ -215,11 +236,11 @@ Not started. See `docs/plans/mfe-pot-initial-design.md`'s
 "Demo Narrative & Experience" section for the full specifics.
 
 - [ ] Siloed-mode toggle in `mfe-pot-msca-shell` — disables the cross-service calls
-      `mfe-pot-employment-life-events`/`dashboard-bff` normally
+      `mfe-pot-employment-life-events-mfe`/`dashboard-bff` normally
       make, so the citizen re-enters details separately and sees three
       disconnected status pages. The "before" picture for the demo.
 - [ ] Live "tell us once" demo beat — address/bank details entered once in
-      the `mfe-pot-employment-life-events` journey visibly pre-fill the EI
+      the `mfe-pot-employment-life-events-mfe` journey visibly pre-fill the EI
       application and Job Bank profile. **Needs a redesign before it can be
       built**: this assumed crossing a real shared `client-profile-service`
       boundary reachable by all three domain BFFs, but that service has
@@ -244,9 +265,9 @@ Not started. See `docs/plans/mfe-pot-initial-design.md`'s
       showing form state preserved, CMS content swapped, currency/date
       reformatting (`1 234,56 $`), and the payment-history widget
       re-rendering in French simultaneously inside
-      `mfe-pot-employment-life-events`.
-- [ ] Payment-history widget (embedded in `mfe-pot-employment-life-events`,
-      sourced from `mfe-pot-dashboard`) has its heading/table labels/status
+      `mfe-pot-employment-life-events-mfe`.
+- [ ] Payment-history widget (embedded in `mfe-pot-employment-life-events-mfe`,
+      sourced from `mfe-pot-dashboard-mfe`) has its heading/table labels/status
       text CMS-driven and bilingual now (`dashboard.payment-history.*` keys
       — closed alongside the same fix for job-bank's and
       employment-insurance's own feature-level headings/labels, previously
@@ -266,8 +287,8 @@ Not started. See `docs/plans/mfe-pot-initial-design.md`'s
         their own `'en' | 'fr'` union instead of importing `Locale`, and need
         manual updates: `mfe-pot-platform/libs/shared/content-client`'s
         `ContentClient` interface, `StrapiContentClient`,
-        `StaticContentClient`, and `mfe-pot-dashboard`'s static content
-        fallback map (`apps/dashboard/src/app/App.tsx`). Note: `SUPPORTED_LOCALES`
+        `StaticContentClient`, and `mfe-pot-dashboard-mfe`'s static content
+        fallback map (`apps/dashboard-mfe/src/app/App.tsx`). Note: `SUPPORTED_LOCALES`
         now lives in `mfe-pot-platform/libs/shared/locale-sync/src/lib/locale-sync.ts`,
         its own package since the React migration (Phase 0) — not inside
         `shared-i18n` anymore, though `shared-i18n` still re-exports it.
@@ -309,7 +330,7 @@ Not started. See `docs/plans/mfe-pot-initial-design.md`'s
 
 - [ ] OpenTelemetry across the 3 BFFs (and ideally the frontends) with a
       propagated trace ID, so a single citizen action can be followed across
-      service boundaries — e.g. `mfe-pot-employment-life-events` calling into
+      service boundaries — e.g. `mfe-pot-employment-life-events-mfe` calling into
       `dashboard-bff`/`job-bank-bff`/`employment-insurance-bff`. No
       logging/tracing/correlation-ID infrastructure exists anywhere in the
       family today (checked all 3 BFFs and all 5 frontend repos — no
@@ -342,7 +363,7 @@ once.
 - [ ] Profile screen (`profile.png`) — My Profile/Preferences/Authorizations/
       Security tabs, personal/contact/family info, sidebar links (Message
       Centre, Payments History, Notifications, Document Centre). Natural
-      owner is `mfe-pot-dashboard` per the "tell us once" profile domain
+      owner is `mfe-pot-dashboard-mfe` per the "tell us once" profile domain
       boundary.
 - [ ] Inbox screen (`inbox.png`) — message list with program/date/has-PDF
       filters. No natural app owner yet identified; likely a new

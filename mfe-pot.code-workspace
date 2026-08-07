@@ -13,20 +13,20 @@
       "path": "mfe-pot-job-bank-shell"
     },
     {
-      "name": "mfe-pot-dashboard",
-      "path": "mfe-pot-dashboard"
+      "name": "mfe-pot-dashboard-mfe",
+      "path": "mfe-pot-dashboard-mfe"
     },
     {
-      "name": "mfe-pot-job-bank",
-      "path": "mfe-pot-job-bank"
+      "name": "mfe-pot-job-bank-mfe",
+      "path": "mfe-pot-job-bank-mfe"
     },
     {
-      "name": "mfe-pot-employment-insurance",
-      "path": "mfe-pot-employment-insurance"
+      "name": "mfe-pot-employment-insurance-mfe",
+      "path": "mfe-pot-employment-insurance-mfe"
     },
     {
-      "name": "mfe-pot-employment-life-events",
-      "path": "mfe-pot-employment-life-events"
+      "name": "mfe-pot-employment-life-events-mfe",
+      "path": "mfe-pot-employment-life-events-mfe"
     }
   ],
   "settings": {}

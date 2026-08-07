@@ -40,11 +40,11 @@ subagent worktree isolation.
 |---|---|
 | [mfe-pot-platform](https://github.com/tn4consulting/mfe-pot-platform) | The platform repo (formerly `mfe-app`). Home to `libs/shared/*` (published as `@tn4consulting/shared-*` packages), the composed `mfe-e2e` suite, Strapi, `platform-versions.json` (cross-repo version-alignment source of truth), and the two Helm library charts. |
 | [mfe-pot-msca-shell](https://github.com/tn4consulting/mfe-pot-msca-shell) | MSCA host app: app frame, GC header/footer, language switcher, mock sign-in, runtime federation manifest reader. Composes all 4 remotes. No BFF. |
-| [mfe-pot-job-bank-shell](https://github.com/tn4consulting/mfe-pot-job-bank-shell) | Second, minimal proof-of-concept host — composes only job-bank's `./Component`, no sidebar nav. No BFF. |
-| [mfe-pot-dashboard](https://github.com/tn4consulting/mfe-pot-dashboard) | + `dashboard-bff`. Cross-benefit overview, payment history, correspondence. |
-| [mfe-pot-job-bank](https://github.com/tn4consulting/mfe-pot-job-bank) | + `job-bank-bff`. Job search and apply. |
-| [mfe-pot-employment-insurance](https://github.com/tn4consulting/mfe-pot-employment-insurance) | + `employment-insurance-bff`. EI application, claim status, reporting. |
-| [mfe-pot-employment-life-events](https://github.com/tn4consulting/mfe-pot-employment-life-events) | Guided "you lost your job" journey stitching the other three apps together. No BFF. |
+| [mfe-pot-job-bank-shell](https://github.com/tn4consulting/mfe-pot-job-bank-shell) | Second, minimal proof-of-concept host — composes only job-bank-mfe's `./Component`, no sidebar nav. No BFF. |
+| [mfe-pot-dashboard-mfe](https://github.com/tn4consulting/mfe-pot-dashboard-mfe) | + `dashboard-bff`. Cross-benefit overview, payment history, correspondence. |
+| [mfe-pot-job-bank-mfe](https://github.com/tn4consulting/mfe-pot-job-bank-mfe) | + `job-bank-bff`. Job search and apply. |
+| [mfe-pot-employment-insurance-mfe](https://github.com/tn4consulting/mfe-pot-employment-insurance-mfe) | + `employment-insurance-bff`. EI application, claim status, reporting. |
+| [mfe-pot-employment-life-events-mfe](https://github.com/tn4consulting/mfe-pot-employment-life-events-mfe) | Guided "you lost your job" journey stitching the other three apps together. No BFF. |
 
 ## Getting started
 
@@ -80,10 +80,10 @@ containers), see that repo's own README.
    git clone git@github.com:tn4consulting/mfe-pot-platform.git
    git clone git@github.com:tn4consulting/mfe-pot-msca-shell.git
    git clone git@github.com:tn4consulting/mfe-pot-job-bank-shell.git
-   git clone git@github.com:tn4consulting/mfe-pot-dashboard.git
-   git clone git@github.com:tn4consulting/mfe-pot-job-bank.git
-   git clone git@github.com:tn4consulting/mfe-pot-employment-insurance.git
-   git clone git@github.com:tn4consulting/mfe-pot-employment-life-events.git
+   git clone git@github.com:tn4consulting/mfe-pot-dashboard-mfe.git
+   git clone git@github.com:tn4consulting/mfe-pot-job-bank-mfe.git
+   git clone git@github.com:tn4consulting/mfe-pot-employment-insurance-mfe.git
+   git clone git@github.com:tn4consulting/mfe-pot-employment-life-events-mfe.git
    ```
 2. Open `mfe-pot.code-workspace` in VS Code for a multi-root view across
    all 7 repos.
@@ -114,11 +114,11 @@ runtime-injected config, Ingress), not `nx serve`. Each repo's
 2. **Deploy each app repo**, in any order:
    ```bash
    cd ../mfe-pot-msca-shell                && pnpm deploy:local
-   cd ../mfe-pot-job-bank-shell             && pnpm deploy:local
-   cd ../mfe-pot-dashboard                 && pnpm deploy:local
-   cd ../mfe-pot-job-bank                  && pnpm deploy:local
-   cd ../mfe-pot-employment-insurance      && pnpm deploy:local
-   cd ../mfe-pot-employment-life-events    && pnpm deploy:local
+   cd ../mfe-pot-job-bank-shell                 && pnpm deploy:local
+   cd ../mfe-pot-dashboard-mfe                  && pnpm deploy:local
+   cd ../mfe-pot-job-bank-mfe                   && pnpm deploy:local
+   cd ../mfe-pot-employment-insurance-mfe       && pnpm deploy:local
+   cd ../mfe-pot-employment-life-events-mfe     && pnpm deploy:local
    ```
    Each script builds that repo's image(s), loads them into `kind` (no
    registry round-trip), and `helm upgrade --install`s that repo's chart —

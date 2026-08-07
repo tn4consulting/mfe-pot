@@ -79,15 +79,15 @@ STATE_DIR="$(dirname "${BASH_SOURCE[0]}")/../.deploy-state"
 # name -> repo dir. Order matters: platform's shared infra first, then
 # the 3 BFF-owning apps (so dashboard-bff has something to fan out to
 # the moment it comes up), then the 3 frontend-only apps -- both host
-# apps last, since job-bank-shell only needs job-bank up and msca-shell
+# apps last, since job-bank-shell only needs job-bank-mfe up and msca-shell
 # needs all 4 remotes up. Parallel arrays, not associative arrays --
 # macOS's default /bin/bash (3.2) predates `declare -A` support.
 STEPS=(
   "mfe-pot-platform"
-  "mfe-pot-job-bank"
-  "mfe-pot-employment-insurance"
-  "mfe-pot-dashboard"
-  "mfe-pot-employment-life-events"
+  "mfe-pot-job-bank-mfe"
+  "mfe-pot-employment-insurance-mfe"
+  "mfe-pot-dashboard-mfe"
+  "mfe-pot-employment-life-events-mfe"
   "mfe-pot-msca-shell"
   "mfe-pot-job-bank-shell"
 )
@@ -108,10 +108,10 @@ STEP_BACKENDS=(
 # torn down and recreated without this script's state being reset).
 STEP_RELEASES=(
   "session-cache strapi mock-idp"
-  "job-bank"
-  "employment-insurance"
-  "dashboard"
-  "employment-life-events"
+  "job-bank-mfe"
+  "employment-insurance-mfe"
+  "dashboard-mfe"
+  "employment-life-events-mfe"
   "msca-shell"
   "job-bank-shell"
 )
