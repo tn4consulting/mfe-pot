@@ -19,15 +19,23 @@ two host ("shell") apps — `mfe-pot-msca-shell` and the minimal proof-of-
 concept `mfe-pot-job-bank-shell`, proving the federation pattern
 generalizes to more than one host — four benefit-domain frontends (each
 with its own BFF), and this meta repo tying them together for local
-multi-repo dev. All are federated at runtime via [Native Federation](https://www.npmjs.com/package/@angular-architects/native-federation) — each
+multi-repo dev. All are federated at runtime via [Native Federation](https://www.npmjs.com/package/@softarc/native-federation) — each
 host reads a runtime manifest and loads its remotes' entry points, so the
 apps are independently deployable and are not built or versioned together.
+Every app is **React** — the family started as a mixed Angular/React
+federation experiment and was later converted wholesale to React, with
+Angular removed entirely (see
+`docs/plans/20260805-1200-angular-to-react-migration.md` for the full
+history).
 
 Non-negotiable requirements across every app repo: bilingual (EN/FR), WCAG
-2.2 AA, and the [GC Design System](https://design-system.alpha.canada.ca/) (GCDS). Full architecture rationale and
-detailed gotchas live in `mfe-pot-platform/CLAUDE.md` — read that directly
-before working on anything architectural; this file only maps *which repo is
-which*.
+2.2 AA, and SCDS — a self-contained, in-house, MSCA-portal-styled design
+system (`@tn4consulting/shared-ui-scds-core`), which replaced an earlier
+GC-owned design-system wrapper (GCDS) once GCDS proved to be built for
+static content pages, not an authenticated portal. Full architecture
+rationale and detailed gotchas live in `mfe-pot-platform/CLAUDE.md` — read
+that directly before working on anything architectural; this file only maps
+*which repo is which*.
 
 None of the sibling repos are git submodules. They're independent clones
 under the `tn4consulting` GitHub org, each with its own remote, deliberately
@@ -157,16 +165,65 @@ runtime-injected config, Ingress), not `nx serve`. Each repo's
    to `http://cms.mfe-pot.local/admin` prompts you to create the Strapi
    admin account (no default credentials are seeded).
 
+### Iterating on one app without a full kind rebuild
+
+Redeploying an app's image to `kind` on every code change is slow — fine for
+verifying the whole family together, not for a tight edit/reload loop on one
+app. Because remote discovery is a **live, Strapi-backed directory** (not a
+file baked into the shell's build — see `mfe-pot-platform/CLAUDE.md`'s
+"Federation" section), you can leave the rest of the family running on
+`kind` and swap just the one app you're iterating on for a local dev server:
+
+1. Leave the full `kind` stack up (steps above).
+2. Run the app you're changing standalone instead of via its `kind` pod —
+   e.g. `cd mfe-pot-job-bank-mfe && pnpm exec nx serve job-bank-mfe`
+   (port 4203; see that repo's own README for its exact serve command/port).
+   Its dev server sends `Access-Control-Allow-Origin: *`, so a `kind`-hosted
+   shell can load it cross-origin with no extra config.
+3. In the Strapi admin (`http://cms.mfe-pot.local/admin`), edit that app's
+   `Remote` entry's URL to point at your local dev server (e.g.
+   `http://localhost:4203/remoteEntry.json`) instead of its `kind` Ingress
+   URL.
+4. Reload the shell — `RemoteRegistryProvider` is polled per navigation, not
+   cached at build time, so no shell rebuild/restart is needed. Point the
+   Strapi entry back at the `kind` URL when you're done.
+
+This only swaps a **routed remote** (a full app screen). A cross-remote
+*widget* (e.g. dashboard's payment-history widget embedded in
+employment-life-events) is loaded by whichever host mediates it, through the
+same registry entry — the same swap works, just double-check which host
+("shell") is doing the mediating for that particular widget (see the
+platform repo's CLAUDE.md "Federation" section).
+
 ### Testing
 
-- **Unit tests** (Jest), per repo: `nx run-many -t test --all`.
-- **Composed integration suite** (`mfe-pot-platform`'s `apps/mfe-e2e`):
-  Playwright, covers routed federation, cross-remote widget embedding, the
-  language broadcast, the BFF-backed golden path, and
-  `@axe-core/playwright` WCAG 2.2 AA scans. **Currently incomplete**: its
-  `webServer` array starts nothing at all (`client-profile-service`, the one
-  thing it used to start, has been removed — see `TODO.md`'s "Hosting / CI"
-  section) — run it against an already-running stack until Phase 2 lands.
+Three tiers, cheapest/fastest first:
+
+- **Per-app unit tests + lint** (Jest/ESLint), the tight inner loop for a
+  single app — no `kind`, no sibling repos running: `pnpm exec nx test
+  <app>` / `pnpm exec nx lint <app>` inside that app's own repo (see its
+  README's "Test, lint, build" section). Across every repo at once:
+  `nx run-many -t test --all` (run from each repo — there's no single
+  workspace root that spans all 7).
+- **One app's own standalone serve**, no shell/siblings required — every
+  app is independently buildable/serveable/testable by design (see the
+  platform repo's CLAUDE.md "Independent testability" section). Use this to
+  verify an app's own behavior in isolation before checking it federated.
+- **The full family on `kind`** (this doc's main walkthrough above) — the
+  only way to exercise real cross-app behavior: routed federation across
+  hostnames, cross-remote widget embedding, the BFF-backed golden path
+  (apply for a job, apply for EI, see it land in the dashboard overview),
+  the language-switch broadcast across independently-loaded remotes, and
+  the real container/Ingress/Helm shape production uses. Use the "iterating
+  on one app" workflow above to keep this loop fast while changing one app.
+  `mfe-pot-platform`'s composed `apps/mfe-e2e` Playwright suite (routed
+  federation, cross-remote widgets, the language broadcast, the BFF-backed
+  golden path, and `@axe-core/playwright` WCAG 2.2 AA scans) automates most
+  of this, but is **currently incomplete**: its `webServer` array starts
+  nothing at all (`client-profile-service`, the one thing it used to start,
+  has been removed — see `TODO.md`'s "Hosting / CI" section) — run it
+  against an already-running stack (`kind`, or several apps' own `nx serve`)
+  until Phase 2 lands.
 
 ### Publishing a `libs/shared/*` package
 
