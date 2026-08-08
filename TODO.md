@@ -375,10 +375,10 @@ Not started. See `docs/plans/mfe-pot-initial-design.md`'s
 ## Observability
 
 OpenTelemetry (traces + metrics) across all 3 BFFs and all 6 frontends —
-implemented, published, and deployed live to the family's `kind` cluster,
-with a real citizen action (`dashboard-bff`'s fan-out) confirmed producing
-one trace ID spanning all 3 BFFs. AWS EKS confirmation is the next step, not
-yet done as of this writing.
+implemented, published, and confirmed genuinely working end to end on both
+the local `kind` cluster and the real AWS EKS deployment: a real citizen
+action (`dashboard-bff`'s fan-out) produces one trace ID spanning all 3 BFFs
+on both.
 Full design, gotchas hit, and exactly what was/wasn't verified live:
 `docs/plans/20260808-1630-opentelemetry-observability.md`;
 `mfe-pot-platform/CLAUDE.md`'s new "Observability: OpenTelemetry" section is
@@ -435,10 +435,59 @@ per-app-role wiring point, the `propagateTraceHeaderCorsUrls` gotcha).
       explicit `kubectl rollout restart` + `kubectl rollout status` to
       confirm health directly — same net effect, just sidesteps whatever
       made Helm's own polling flaky.
-- [ ] Confirm the same end-to-end trace on the real AWS EKS deployment
-      (`docs/plans/20260808-1500-mfe-pot-aws-eks-terraform.md`) — not yet
-      done. The `kind` verification above is a local proof; EKS is the
-      real target this family is meant to actually run on.
+- [x] Confirmed the same end-to-end trace on the real AWS EKS deployment
+      (`docs/plans/20260808-1500-mfe-pot-aws-eks-terraform.md`). Pushing the
+      6 app repos' commits auto-triggered their `deploy-eks` CI jobs (the
+      cluster already existed); the 4 new charts have no CI job of their
+      own (bare upstream images, nothing to build), so were deployed
+      directly via `helm upgrade --install` the same way `session-cache`
+      already is. Real trace ID confirmed via `curl
+      https://dashboard-mfe.aws.tn4consulting.com/api/overview`, spanning
+      `dashboard-bff` → `job-bank-bff` and `dashboard-bff` →
+      `employment-insurance-bff` over the actual AWS network (real NLB, DNS
+      via external-dns, TLS via cert-manager) — identical span structure to
+      the `kind` trace. The Grafana RED dashboard
+      (`https://grafana.aws.tn4consulting.com`, `letsencrypt-staging` cert
+      for now — untrusted by default clients, same as this project's
+      existing CI workaround for other staging-cert checks) showed the same
+      real per-BFF data immediately after.
+      **Two things surfaced along the way, not this item's fault but worth
+      recording**: (1) `mfe-pot-employment-life-events-mfe`'s CI failed at
+      the pre-existing `kind-validation` verification step (a stale check —
+      its own comment contradicts the actual curl commands run — unrelated
+      to this change, `lint-test-build` passed fine), so `deploy-eks` was
+      skipped and its EKS release was left stuck on a genuinely broken,
+      months-old partial deploy: the Ingress was still pointing at the
+      **kind-only** hostname (`employment-life-events-mfe.mfe-pot.local`,
+      never the AWS one) from an incomplete earlier rollout
+      (`ProgressDeadlineExceeded`), so `msca-shell`'s `/job-loss` route
+      showed the citizen-facing "temporarily unavailable" federation-load
+      fallback in production. **Fixed directly**: built and pushed a fresh
+      image to ECR by hand (bypassing the blocked CI), then
+      `helm upgrade --install` with both `values.yaml` and
+      `values-eks.yaml` — confirmed the Ingress now serves the correct AWS
+      hostname and DNS/TLS both resolve. The stale `kind-validation` check
+      itself is still unfixed and worth someone's attention so this doesn't
+      recur on the next push. (2) Found and cleaned up a handful of stray
+      EKS pods stuck in `ErrImageNeverPull` (using the kind-only
+      `pullPolicy: Never` instead of the EKS `IfNotPresent`) predating this
+      work, from earlier CI/deploy activity.
+- [x] **Client-impact hardening, prompted by an explicit ask**: both
+      `initNodeObservability` and `initBrowserObservability` now wrap their
+      SDK setup in try/catch and log-and-continue rather than throw — a
+      collector outage or an unexpected SDK-internal failure must never
+      become a new source of downtime for a citizen-facing BFF/page.
+      Published as `0.1.1` and rolled out to all 6 app repos (via
+      `pnpm update`, not just a plain `pnpm install` — a plain install
+      respects an already-resolved lockfile version within the same semver
+      range and won't pick up a patch bump on its own, a real gotcha hit
+      doing this). **Verified live, not just by code inspection**: scaled
+      `otel-collector` to 0 replicas on `kind` and hit `dashboard-bff`'s
+      real fan-out 5 times in a row — identical ~30-40ms latency, all 7
+      tiles still `ok`, zero errors in the BFF's own logs. Confirms what
+      was already true by the OTel SDK's own async, decoupled export
+      design even before this hardening pass; the try/catch specifically
+      closes the narrower, harder-to-trigger gap of a setup-time exception.
 
 ## Nx build performance
 

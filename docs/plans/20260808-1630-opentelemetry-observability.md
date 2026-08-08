@@ -34,9 +34,31 @@ the browser leg specifically. `shared-observability`'s
 hand-crafted OTLP payload earlier in this work, never from an actual
 deployed frontend pod's own JS generating a `traceparent`. A real browser
 session against `msca.mfe-pot.local` (or an equivalent scripted check) would
-be needed to close that specific gap. **AWS EKS confirmation is also still
-outstanding** — everything above was verified on the local `kind` cluster
-only; EKS is the real target this family is meant to run on.
+be needed to close that specific gap.
+
+**Update 2 — confirmed on AWS EKS too, plus a resilience hardening pass.**
+The same trace check was repeated against the real EKS deployment
+(`https://dashboard-mfe.aws.tn4consulting.com/api/overview`) with identical
+results — see "Verified live" for the trace ID. Separately, prompted by an
+explicit request to guarantee the client is never impacted if the OTel
+backend is unavailable: both `initNodeObservability` and
+`initBrowserObservability` now wrap their SDK setup in try/catch,
+log-and-continue instead of throw, published as `0.1.1`. Verified live (not
+just asserted): scaled `otel-collector` to 0 replicas on `kind` and hit
+`dashboard-bff`'s real fan-out 5 times in a row — identical latency, all
+tiles still `ok`, zero errors logged. See "Client-impact resilience" below.
+
+**A real, unrelated production bug was found and fixed along the way**:
+`employment-life-events-mfe`'s EKS release had been stuck for a long time on
+a broken partial rollout — its Ingress still pointed at the kind-only
+hostname, never the real AWS one — because its `deploy-eks` CI job had been
+silently skipped every run (gated on a separate, pre-existing stale
+`kind-validation` check failing). This meant `msca-shell`'s `/job-loss` route
+was showing the citizen-facing "temporarily unavailable" fallback in
+production. Fixed directly (image built/pushed to ECR by hand, `helm
+upgrade --install` with both values files) — confirmed working — but the
+underlying stale CI check is not fixed, so this can recur on the next push
+to that repo until someone does.
 
 ## Context
 
@@ -237,13 +259,28 @@ releases + platform infra before this work started):
    with the intended queries — request rate, error rate %, p50/p95/p99
    duration, total requests/errors (5m), current p95, plus a text panel
    pointing at Explore for trace-level drill-down.
+9. **The identical trace check, repeated against real AWS EKS**: `curl
+   https://dashboard-mfe.aws.tn4consulting.com/api/overview` produced a
+   second real trace ID spanning the same 3 real BFFs over the actual AWS
+   network path (NLB, external-dns-managed DNS, cert-manager-issued TLS),
+   confirmed via `GET /api/traces/<id>` against Tempo and cross-checked
+   through Grafana's own datasource proxy — identical span structure to the
+   `kind` trace. Getting there also required deploying the 4 observability
+   charts to EKS directly (no CI job covers them, same as `session-cache`)
+   and fixing an unrelated, real production bug found along the way (see
+   the "Status" section's "Update 2").
+10. **Client-impact resilience under a real, live OTel outage**: scaled
+    `otel-collector` to 0 replicas on `kind`, then hit `dashboard-bff`'s
+    real `/api/overview` fan-out 5 times in a row — consistent ~30-40ms
+    latency (no change from baseline), all 7 tiles still returning `ok`,
+    and zero errors or unhandled-rejection warnings in the BFF's own pod
+    logs. This was true even before the `0.1.1` try/catch hardening (an
+    inherent property of the OTel SDK's async, decoupled export design);
+    `0.1.1` additionally guards the narrower, harder-to-trigger case of an
+    exception during SDK setup itself.
 
 ## Not yet done — real next steps, not silently dropped
 
-- **Confirm the same end-to-end trace on the real AWS EKS deployment**
-  (`docs/plans/20260808-1500-mfe-pot-aws-eks-terraform.md`) — everything in
-  "Verified live" above was exercised on the local `kind` cluster only. EKS
-  is the actual target this family is meant to run on.
 - **The browser leg of trace propagation is still unverified from a real
   deployed frontend.** BFF-to-BFF propagation is proven (item 6 above);
   `shared-observability`'s `propagateTraceHeaderCorsUrls` mechanism has only
@@ -253,3 +290,14 @@ releases + platform infra before this work started):
   scripted equivalent (e.g. a headless-browser run) to close this gap.
 - **`mock-idp`'s `/token` exchange is not traced** — out of scope per the
   literal `TODO.md` wording ("across the 3 BFFs").
+- **`mfe-pot-employment-life-events-mfe`'s `kind-validation` CI check is
+  still stale** (its own comment contradicts the actual verification
+  commands run — pre-existing, unrelated to this work) and will keep
+  blocking `deploy-eks` from firing on every future push to that repo until
+  someone fixes it, silently leaving its EKS deployment stuck on whatever
+  was last successfully built.
+- **A few stray EKS pods were found stuck in `ErrImageNeverPull`**
+  (kind-only `pullPolicy: Never` somehow reaching an EKS deploy) predating
+  this work — cleaned up incidentally while fixing the above, but the root
+  cause of how they got there wasn't investigated. Worth a closer look if
+  this recurs.
