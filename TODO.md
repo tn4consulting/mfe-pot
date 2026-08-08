@@ -252,6 +252,30 @@ to `shared-ui-scds`, the change that surfaced them:
 - [ ] A/B testing as a first-class design principle — changes must be
       testable at small scale for impact before full rollout.
 
+## Backend-outage resilience — design only, not started
+
+Design doc: `docs/plans/20260808-1800-backend-outage-resilience.md`. Covers
+degraded-read serving (Redis single-pod → primary+replica, per-BFF
+last-known-good cache), per-domain business rules for how stale data may be
+used, async client-side write queueing for submissions made while the
+backend is unreachable (EI application/biweekly report as the proof case),
+and health/circuit-breaker signaling to drive UI mode. Recommended proof
+scope is `employment-insurance-mfe`/`-bff` only, generalizing later — not
+all BFFs/frontends at once.
+
+- [ ] Redis primary+replica (or Sentinel) in `mfe-pot-platform/charts/session-cache`
+- [ ] Shared `libs/shared/resilience-server`: circuit-breaker `SessionCache`
+      decorator + shared degraded-response envelope
+- [ ] Shared `libs/shared/resilience-client`: `useBackendHealth` hook,
+      outbox/queue primitive, degraded-mode banner
+- [ ] `/health` → real readiness (Redis check) on all 3 BFFs
+- [ ] Idempotency-keyed write endpoints, starting with
+      `employment-insurance-bff`'s `POST /api/applications` and report submit
+- [ ] Demonstrator: `employment-insurance-mfe` read-degraded banners +
+      queued submission UI
+- [ ] Open decision, not yet made: queue durability (in-tab retry vs.
+      Service Worker + Background Sync) — decide when this is picked up
+
 ## Demo narrative (proves the point, not just the pattern)
 
 Not started. See `docs/plans/mfe-pot-initial-design.md`'s
@@ -350,16 +374,71 @@ Not started. See `docs/plans/mfe-pot-initial-design.md`'s
 
 ## Observability
 
-- [ ] OpenTelemetry across the 3 BFFs (and ideally the frontends) with a
-      propagated trace ID, so a single citizen action can be followed across
-      service boundaries — e.g. `mfe-pot-employment-life-events-mfe` calling into
-      `dashboard-bff`/`job-bank-bff`/`employment-insurance-bff`. No
-      logging/tracing/correlation-ID infrastructure exists anywhere in the
-      family today (checked all 3 BFFs and all 5 frontend repos — no
-      `winston`/`pino`/logger, no `x-request-id` or correlation-ID handling).
-      Natural fit alongside the "BFFs must not call each other" design
-      principle above, since tracing is what would make cross-BFF/backend
-      call chains debuggable once they exist.
+OpenTelemetry (traces + metrics) across all 3 BFFs and all 6 frontends —
+implemented, published, and deployed live to the family's `kind` cluster,
+with a real citizen action (`dashboard-bff`'s fan-out) confirmed producing
+one trace ID spanning all 3 BFFs. AWS EKS confirmation is the next step, not
+yet done as of this writing.
+Full design, gotchas hit, and exactly what was/wasn't verified live:
+`docs/plans/20260808-1630-opentelemetry-observability.md`;
+`mfe-pot-platform/CLAUDE.md`'s new "Observability: OpenTelemetry" section is
+the durable architecture reference (federation-sharing decision,
+per-app-role wiring point, the `propagateTraceHeaderCorsUrls` gotcha).
+
+- [x] Two new shared packages (`@tn4consulting/shared-observability-server`,
+      `@tn4consulting/shared-observability`), four new Helm charts
+      (`otel-collector`/`tempo`/`prometheus`/`grafana`, deployed once,
+      shared across the family like `session-cache`), and every BFF/frontend
+      repo's wiring (`main.ts`/`runtime-config.ts`/`bootstrap.tsx`, every
+      chart's `values.yaml` + `values-eks.yaml`) — all landed. `deploy-local.sh`
+      and `deploy-eks.sh` both sequence the 4 new releases.
+- [x] Live-verified on `kind`: all 4 charts Ready, both new public Ingress
+      hosts (`otel`/`grafana`) serving, Grafana's Tempo/Prometheus
+      datasources auto-provisioned, Prometheus actively scraping the
+      collector, and a real span (emitted by the actual built
+      `shared-observability-server` package, not a hand-crafted payload)
+      confirmed queryable in Tempo both directly and through Grafana's own
+      proxy.
+- [x] Provisioned "BFF RED metrics" Grafana dashboard (request rate/error
+      rate/p50+p95+p99 duration, per service — `charts/grafana/dashboards/bff-red-metrics.json`,
+      loaded via file provisioning so it survives a pod restart, not
+      clicked together by hand). Built on Tempo's span-metrics processor
+      (RED derived from spans, `remote_write`d into Prometheus) rather than
+      each BFF's own HTTP auto-instrumentation metrics — see the plan doc's
+      "Gotchas hit" for why (a real ESM-vs-CJS `require-in-the-middle`
+      nuance, confirmed to not affect any real BFF, which all compile to
+      CJS). Confirmed populated with real synthetic traffic before landing.
+- [x] Both packages published to GitHub Packages (`@tn4consulting/shared-observability-server@0.1.0`,
+      `@tn4consulting/shared-observability@0.1.0`), all 9 app images rebuilt
+      and redeployed to `kind` with the real code. Live-confirmed: a single
+      `curl` to `dashboard-mfe.mfe-pot.local/api/overview` produced one
+      trace ID spanning `dashboard-bff`'s incoming request → its outgoing
+      calls to `job-bank-bff` and `employment-insurance-bff` → each of
+      their own request handling and Redis calls — the exact cross-BFF
+      scenario this item asked for. The Grafana RED dashboard immediately
+      showed real per-BFF request/error/duration data, not synthetic test
+      traffic. **Narrower than "browser → BFF" though**: this proved
+      BFF-to-BFF propagation (server-to-server `fetch`/undici), not yet the
+      browser leg specifically (`shared-observability`'s
+      `propagateTraceHeaderCorsUrls` mechanism, exercised only via a
+      hand-crafted OTLP payload earlier, never from an actual deployed
+      frontend pod's own JS) — a real browser session against
+      `msca.mfe-pot.local` would be needed to close that last gap.
+      **Real, unrelated infra gotcha hit along the way**: `helm upgrade
+      --wait` was unreliable redeploying to this cluster (timed out on
+      rollout-readiness polling even though images/manifests applied
+      cleanly and the node wasn't resource-starved) — root cause not fully
+      isolated, but the cluster's ReplicaSet history showed many more
+      rollouts than this session performed, consistent with other
+      concurrent sessions also deploying to the same shared cluster around
+      the same time. Worked around by applying without `--wait`, then an
+      explicit `kubectl rollout restart` + `kubectl rollout status` to
+      confirm health directly — same net effect, just sidesteps whatever
+      made Helm's own polling flaky.
+- [ ] Confirm the same end-to-end trace on the real AWS EKS deployment
+      (`docs/plans/20260808-1500-mfe-pot-aws-eks-terraform.md`) — not yet
+      done. The `kind` verification above is a local proof; EKS is the
+      real target this family is meant to actually run on.
 
 ## Nx build performance
 
