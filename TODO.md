@@ -119,11 +119,22 @@ all 5 apps already — this is what's left, not a redesign:
       in `mfe-pot-platform`) to a registry as OCI artifacts — every app
       repo's `Chart.yaml` still references them via a sibling-checkout-relative
       `file://` path.
-- [ ] AKS + ACR provisioning, then Stage 2 CI (push images to ACR, deploy to
-      AKS) per app repo. Blocked on Azure resources not existing yet — see
-      `docs/plans/20260801-1935-mfe-pot-polyrepo-split-and-k8s-hosting.md`'s
-      "Open items needing your input" for the unresolved questions (domain
-      for the 5 hostnames, IaC tool, `az` CLI access).
+- [x] ~~AKS + ACR provisioning~~ — **superseded (2026-08): cloud target
+      switched from Azure to AWS EKS**, deliberately (no technical reason —
+      the Azure account in question is unmanageable), and this pass uses real
+      Terraform IaC rather than the checked-in-CLI-script approach the
+      superseded plan recommended. Full design in
+      `docs/plans/20260808-1500-mfe-pot-aws-eks-terraform.md`; Terraform lives
+      in `mfe-pot-platform/infra/terraform/{bootstrap,foundation,cluster}`
+      (written and `terraform validate`d, not yet applied to a real account —
+      blocked on working AWS credentials). Also corrects a stale count in the
+      old plan: there are **8** public Ingress hosts today, not 5 (mock-idp
+      has its own too).
+- [ ] Land the per-app-repo half of the above: `values-eks.yaml` + Ingress TLS
+      block + a `deploy-eks` CI job in each of the 6 app repos plus
+      `mfe-pot-platform`'s `mock-idp`/`strapi` charts, and
+      `mfe-pot/tools/deploy-eks.sh` for cross-repo bring-up. See the design
+      doc's "Build order" section for the exact sequence.
 - [ ] `pnpm demo:reset` — each of the 3 BFFs now has its own `POST
       /api/reset` (backed by `@tn4consulting/shared-session-cache`), but
       there's still no single cross-repo command that calls all 3 (this meta repo has no
@@ -356,6 +367,35 @@ Not started. See `docs/plans/mfe-pot-initial-design.md`'s
       and CI — https://nx.dev/ci/features/remote-cache. Now relevant per-repo
       (each of the 6 repos has its own Nx workspace since the split) rather
       than once across one big workspace.
+
+## Menu / sidebar nav scope: align with real Service Canada service list
+
+`mfe-pot-msca-shell`'s sidebar nav today only lists destinations for the 4
+federated remotes that actually exist (Dashboard, Job Bank, Employment
+Insurance, plus the employment-life-events guided journey) — it doesn't
+reflect the full set of services a citizen sees on the real "Sign in to your
+account to access services for:" list on Canada.ca / MSCA:
+
+- Canadian Dental Care Plan (CDCP)
+- Employment Insurance (EI) — covered
+- Canada Pension Plan (CPP)
+- Canada Pension Plan disability
+- Old Age Security (OAS)
+- Canada Disability Benefit
+- Social Insurance Number (SIN)
+- National Student Loans Service Centre (NSLSC)
+- Canada Apprentice Loan
+- Passport
+
+- [ ] Update the menu to be consistent with the services actually supported
+      by Service Canada. Needs a scoping pass first: decide which of the
+      above become real (or stub/"coming soon") nav entries in
+      `mfe-pot-msca-shell` vs. which stay out of scope for this PoC — most
+      have no backing remote/BFF today (only EI is implemented; CPP/OAS/CDCP/
+      SIN/etc. would each need their own federated remote or at least a
+      placeholder route/CMS entry). Likely pairs with the existing
+      Profile/Inbox concept-screen work below rather than being fully
+      separate.
 
 ## Concept UI screens (from `docs/msca-screenshots/`)
 
