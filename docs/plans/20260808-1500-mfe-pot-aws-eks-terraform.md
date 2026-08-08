@@ -2,12 +2,36 @@
 
 ## Status
 
-Terraform for all three layers (`bootstrap`, `foundation`, `cluster`) written
-and `terraform validate`d against real current module versions
-(`terraform-aws-modules/eks` 20.37.2, `.../vpc` 5.21.0, `.../iam` 5.60.0) —
-not yet applied to a real AWS account. Per-app-repo changes (`values-eks.yaml`,
-Ingress TLS block, `deploy-eks` CI job) not yet started as of this doc's
-authoring. See "Build order" below for what's left and in what sequence.
+Applied to a real AWS account (`147318891438`, `ca-central-1`) and verified
+end to end: `mock-idp` and `job-bank-mfe` both manually built, pushed to ECR,
+and deployed, confirmed serving over real HTTPS with a cert-manager-issued
+cert, correct DNS (Route 53 + external-dns), and working cross-service
+connectivity (Redis, mock-idp JWKS). All 8 chart-owning repos have
+`values-eks.yaml`/Ingress-TLS/`deploy-eks` CI support committed and pushed.
+GitHub Actions CI is wired with the 3 required repo variables plus
+`NPM_READ_TOKEN` (fixing a separate, pre-existing GitHub Packages 403 that
+predated this work).
+
+**Real gotcha hit and fixed**: the GitHub Actions OIDC `sub` claim this org's
+tokens actually carry is `repo:tn4consulting@<owner_id>/<repo>@<repo_id>:ref:refs/heads/main`
+— not the classic `repo:ORG/REPO:ref:refs/heads/BRANCH` format most
+AWS/GitHub OIDC tutorials show. Confirmed by decoding a real token via a
+temporary debug step. `foundation/github_oidc.tf`'s trust policy condition
+now wildcards both numeric IDs (`repo:tn4consulting@*/mfe-pot-*@*:ref:refs/heads/main`)
+to match. If OIDC AssumeRoleWithWebIdentity ever silently fails again with
+"Not authorized" despite a seemingly-correct trust policy, decode the actual
+token first (`curl` the `ACTIONS_ID_TOKEN_REQUEST_URL` from within a step
+with `id-token: write`) rather than assuming the classic claim format.
+
+**Real gotcha hit and fixed**: EKS's own default node security group
+(`terraform-aws-modules/eks`) only opens specific known ports (kubelet,
+coredns, webhooks, node-initiated ephemeral 1025-65535 return traffic) — NOT
+arbitrary pod-to-pod traffic on ports below 1024. Confirmed live:
+ingress-nginx timed out reaching a frontend pod's port 80 on a different
+node, while the same request to a BFF on port 3001 (inside the ephemeral
+range) worked. Fixed with an explicit `node_security_group_additional_rules`
+self-referencing allow-all rule in `cluster/eks.tf` — a standard requirement
+for any real multi-node EKS + VPC CNI cluster, not optional hardening.
 
 ## Context
 
