@@ -269,6 +269,91 @@ to `shared-ui-scds`, the change that surfaced them:
 - [ ] A/B testing as a first-class design principle — changes must be
       testable at small scale for impact before full rollout.
 
+## Scaling to multi-team ownership (in progress — see `docs/plans/20260808-1200-multi-team-scale-governance.md` for the full design)
+
+Prompted by moving to one team per repo (7 teams; `mfe-pot-platform` as the
+platform/DX team). Strong *technical* contracts already exist
+(`platform-versions.json`, published `@tn4consulting/shared-*` packages,
+module-boundary enforcement, per-repo CI, a shared Renovate preset) but
+there's been zero coordination/governance tooling — see the design doc for
+the full survey.
+
+- [x] `@tn4consulting/shared-platform-standards` — package built (not yet
+      published — see below) carrying `check-platform-versions` (CI/local
+      drift check against `platform-versions.json`, no sibling clone
+      required — confirmed catching real, pre-existing drift:
+      `mfe-pot-dashboard-mfe` was on `shared-ui-scds-core@1.1.0` against
+      `platform-versions.json`'s pinned `1.2.0`), a Claude-readable
+      `PLATFORM_STANDARDS.md` synced into each consuming repo's `docs/` on
+      `postinstall`, shared ESLint/Jest config (confirmed via a real
+      migration + identical `nx lint`/`nx test` results — see below), and a
+      `platform-critical`-labelled-PR CI backstop. Piloted locally on
+      `mfe-pot-dashboard-mfe` via a temporary `pnpm.overrides` `file:` link
+      (reverted after verification, per the existing technique for testing
+      an unpublished shared lib).
+      **Discovered piloting it**: sharing `tsconfig.base.json` via a real
+      `extends` doesn't work in this family — Native Federation's build
+      step (`@softarc/sheriff-core`) throws once the extended config lives
+      in `node_modules`, for every app repo, not just this one. Ships as a
+      documented reference file instead; each repo keeps its own inline
+      tsconfig.base.json.
+- [x] Rolled `shared-platform-standards` out to the remaining 5 app repos
+      (`mfe-pot-msca-shell`, `mfe-pot-job-bank-shell`, `mfe-pot-job-bank-mfe`,
+      `mfe-pot-employment-insurance-mfe`, `mfe-pot-employment-life-events-mfe`)
+      — mechanical repeat of the `dashboard-mfe` pilot, each verified the same
+      way (temporary local `file:` link, `nx run-many -t lint,test,build --all`
+      green, then reverted). **Real drift found in every repo except
+      `employment-insurance-mfe`** (already on `shared-ui-scds-core@1.2.0`):
+      the other 5 are all on `shared-ui-scds-core@1.1.0` against the pinned
+      `1.2.0`, and `mfe-pot-msca-shell`/`mfe-pot-job-bank-shell` are also on
+      `shared-federation-runtime@1.0.2` against the pinned `1.0.1` — real,
+      pre-existing, previously-invisible drift across most of the family,
+      exactly the failure mode this tool exists to surface. Not fixed as
+      part of this rollout (a version bump is a separate decision); each
+      repo's new `check:versions` CI step will now fail until it's
+      addressed. All 6 app repos still need `@tn4consulting/shared-platform-standards`
+      actually published to GitHub Packages before any of this is live in
+      CI (see the package's own `devDependency` entries, currently pointing
+      at a version not yet on the registry) — publishing, committing, and
+      pushing are separate, deliberately not done as part of this pass.
+- [x] `@tn4consulting/shared-platform-standards@0.1.0` **published** (2026-08-08,
+      manually, via a personal `write:packages`-scoped token — `mfe-pot-platform`'s
+      own `publish-shared-packages.yml` run failed on it twice, both times
+      with `403 ... The token provided does not match expected scopes`, not
+      the usual "already published, no-op" case `publish-shared-lib.mjs`
+      already handles). Root cause matches this same workflow's own
+      long-standing comment: each `@tn4consulting/*` package needs its own
+      **manual, one-time "Manage Actions access" grant** (GitHub → the
+      package's own Settings → Actions access → add `mfe-pot-platform`) —
+      every existing package already has this grant from whenever it was
+      first published; a genuinely new package doesn't, and the repo-wide
+      `NPM_READ_TOKEN` PAT's scope alone isn't enough to bypass it. Package
+      is real and consumable today (`pnpm install` in any app repo resolves
+      it normally) — only *future* CI-driven version bumps to this specific
+      package are blocked until someone with package-admin rights grants
+      that access. Worth doing before this package's first real version
+      bump (e.g. once the `tsconfig.base.json`-sharing limitation gets
+      revisited), or CI will silently 403 again.
+- [ ] Ownership map (repo table in `README.md`/`CLAUDE.md`), CODEOWNERS per
+      repo, CONTRIBUTING.md per repo, PR/issue templates, the
+      breaking-change/deprecation protocol (14-day adoption window before
+      `platform-critical` CI backstop trips — see the design doc's item 4).
+      All design-only so far.
+- [x] `mfe-pot-platform` has no lint/test/build CI workflow at all — only
+      `publish-shared-packages.yml`/`deploy-eks.yml` exist, despite its own
+      `CLAUDE.md` claiming a single `nx affected` workflow runs there.
+      Discovered auditing this area, unrelated to it otherwise. Fixed
+      alongside `shared-platform-standards`: new
+      `.github/workflows/version-check.yml` runs `pnpm run check:versions`
+      — still no general lint/test/build workflow, that part stays open.
+- [x] `publish-shared-packages.yml` had two dead steps (`Publish shared-ui-scds`,
+      `Publish shared-ui-gcds`) referencing `libs/shared/ui-scds`/`ui-gcds`
+      directories that no longer exist — both libs were deleted outright
+      once GCDS was removed from the family (see the "Angular → React
+      migration" section above), but the publish steps were never cleaned
+      up, so every run of this workflow was failing partway through.
+      Removed both steps.
+
 ## Backend-outage resilience — design only, not started
 
 Design doc: `docs/plans/20260808-1800-backend-outage-resilience.md`. Covers
