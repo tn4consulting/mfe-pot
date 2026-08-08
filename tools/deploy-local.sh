@@ -332,9 +332,18 @@ check_persistence \
   "/api/applications" '{"jobId":"job-001","applicantSub":"rollout-check"}' \
   "/api/applications?applicantSub=rollout-check" "length"
 
+# employment-insurance-bff's POST /api/applications now requires a full
+# EiApplicationInput (with declarationAccepted=true) alongside
+# applicantSub, not just applicantSub alone -- see the EI application
+# wizard (EiApplicationForm.tsx in mfe-pot-employment-insurance-mfe). A
+# bare `{"applicantSub":"rollout-check"}` 400s here since the route added
+# that requirement; kept as its own variable rather than inlined, purely
+# for readability given the payload's size.
+ei_application_body='{"applicantSub":"rollout-check","application":{"personal":{"firstName":"Rollout","lastName":"Check","dateOfBirth":"1990-01-01","addressLine1":"123 Main St","city":"Ottawa","province":"ON","postalCode":"K1A 0A1","phone":"6135550100","preferredLanguage":"en"},"separation":{"employerName":"Acme Co.","lastDayWorked":"2026-07-01","reasonCode":"shortage_of_work","payRate":25,"payPeriod":"hourly","jobTitle":"Warehouse associate"},"otherEmployment":{"hadOtherEmployers":false},"eligibility":{"workersCompensation":false,"pension":false,"selfEmployedOrBusiness":false,"inTrainingProgram":false},"availability":{"availableImmediately":true,"educationLevel":"high_school"},"directDeposit":{"enrolling":false},"declarationAccepted":true}}'
+
 check_persistence \
   "employment-insurance-bff" "employment-insurance-mfe.mfe-pot.local" \
-  "/api/applications" '{"applicantSub":"rollout-check"}' \
+  "/api/applications" "$ei_application_body" \
   "/api/claims?applicantSub=rollout-check" ".id"
 
 echo
