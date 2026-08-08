@@ -146,23 +146,23 @@ all 5 apps already — this is what's left, not a redesign:
       coordinates all the sibling repos for the composed test suite.
       `mfe-e2e`'s golden-path test still works around the underlying gap
       with loose assertions instead of exact counts in the meantime.
-- [ ] `mfe-pot-employment-life-events-mfe`'s CI has a stale `kind-validation`
-      verification step: the step's own comment says "No env.js script tag
-      to check for here... this one never got the runtime-config migration,"
-      but the actual commands it runs contradict that (they do check for
-      `/env.js`), and the check fails outright. `lint-test-build` passes
-      fine — this is purely a stale verification script issue, not a real
-      app bug. Because `deploy-eks` is gated on `kind-validation` succeeding
-      (`needs:` in `.github/workflows/ci.yml`), every push to this repo
-      silently skips `deploy-eks`, leaving its EKS release stuck on
-      whichever build last happened to land successfully. Confirmed this
-      isn't hypothetical: it's exactly how that repo's EKS release ended up
-      stuck for a long time on a broken partial rollout (Ingress still
-      pointing at the kind-only hostname), which made `msca-shell`'s
-      `/job-loss` route show "temporarily unavailable" in production until
-      manually fixed (see `docs/plans/20260808-1630-opentelemetry-observability.md`'s
-      "Status" section, "Update 2" — the fix there was a one-off, this
-      item is the actual root cause still needing a real fix).
+- [x] `mfe-pot-employment-life-events-mfe`'s CI had a stale `kind-validation`
+      verification step (resolved 2026-08-08): it grepped the deployed page
+      for `<msca-le-root`, an element that never existed — this React app
+      renders into a plain `<div id="root">`. The step's own comment claimed
+      the app never got the runtime-config migration, but per that repo's
+      CLAUDE.md it has (`src/runtime-config.ts`/`public/env.js` were added
+      for `ContentClient`'s `strapiBaseUrl`), which is exactly why the check
+      was stale rather than correct. Fixed by switching both the
+      `kind-validation` and `deploy-eks` verification steps to check for
+      `<script src="env.js">`, matching the pattern job-bank-mfe and
+      dashboard-mfe already use (commit `8d1372d`). Confirmed green: all
+      three jobs (`lint-test-build`, `kind-validation`, `deploy-eks`) passed
+      on the next push. This was the root cause behind the stuck EKS
+      release documented in
+      `docs/plans/20260808-1630-opentelemetry-observability.md`'s "Status"
+      section, "Update 2" — that fix was a one-off; this is the underlying
+      fix so it doesn't recur.
 - [ ] `mfe-pot/tools/deploy-local.sh`'s conditional build/deploy (skip a
       sibling repo's build+deploy step when its git tree — HEAD +
       uncommitted/untracked changes — matches what was last successfully
