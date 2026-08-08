@@ -49,12 +49,10 @@ subagent worktree isolation.
 | [mfe-pot-platform](https://github.com/tn4consulting/mfe-pot-platform) | The platform repo (formerly `mfe-app`). Home to `libs/shared/*` (published as `@tn4consulting/shared-*` packages), the composed `mfe-e2e` suite, Strapi, `platform-versions.json` (cross-repo version-alignment source of truth), and the two Helm library charts. |
 | [mfe-pot-msca-shell](https://github.com/tn4consulting/mfe-pot-msca-shell) | MSCA host app: app frame, GC header/footer, language switcher, mock sign-in, runtime federation manifest reader. Composes all 4 remotes. No BFF. |
 | [mfe-pot-job-bank-shell](https://github.com/tn4consulting/mfe-pot-job-bank-shell) | Second, minimal proof-of-concept host — composes only job-bank-mfe's `./Component`, no sidebar nav. No BFF. |
-| [mfe-pot-dashboard-mfe](https://github.com/tn4consulting/mfe-pot-dashboard) | + `dashboard-bff`. Cross-benefit overview, payment history, correspondence. |
-| [mfe-pot-job-bank-mfe](https://github.com/tn4consulting/mfe-pot-job-bank) | + `job-bank-bff`. Job search and apply. |
-| [mfe-pot-employment-insurance-mfe](https://github.com/tn4consulting/mfe-pot-employment-insurance) | + `employment-insurance-bff`. EI application, claim status, reporting. |
-| [mfe-pot-employment-life-events-mfe](https://github.com/tn4consulting/mfe-pot-employment-life-events) | Guided "you lost your job" journey stitching the other three apps together. No BFF. |
-
-The 4 remotes' link text uses their local/`-mfe`-suffixed name; their GitHub repo itself is still un-suffixed (see "Getting started" below) — the link targets above point at the real GitHub URL.
+| [mfe-pot-dashboard-mfe](https://github.com/tn4consulting/mfe-pot-dashboard-mfe) | + `dashboard-bff`. Cross-benefit overview, payment history, correspondence. |
+| [mfe-pot-job-bank-mfe](https://github.com/tn4consulting/mfe-pot-job-bank-mfe) | + `job-bank-bff`. Job search and apply. |
+| [mfe-pot-employment-insurance-mfe](https://github.com/tn4consulting/mfe-pot-employment-insurance-mfe) | + `employment-insurance-bff`. EI application, claim status, reporting. |
+| [mfe-pot-employment-life-events-mfe](https://github.com/tn4consulting/mfe-pot-employment-life-events-mfe) | Guided "you lost your job" journey stitching the other three apps together. No BFF. |
 
 ## Getting started
 
@@ -90,16 +88,14 @@ containers), see that repo's own README.
    git clone git@github.com:tn4consulting/mfe-pot-platform.git
    git clone git@github.com:tn4consulting/mfe-pot-msca-shell.git
    git clone git@github.com:tn4consulting/mfe-pot-job-bank-shell.git
-   git clone git@github.com:tn4consulting/mfe-pot-dashboard.git mfe-pot-dashboard-mfe
-   git clone git@github.com:tn4consulting/mfe-pot-job-bank.git mfe-pot-job-bank-mfe
-   git clone git@github.com:tn4consulting/mfe-pot-employment-insurance.git mfe-pot-employment-insurance-mfe
-   git clone git@github.com:tn4consulting/mfe-pot-employment-life-events.git mfe-pot-employment-life-events-mfe
+   git clone git@github.com:tn4consulting/mfe-pot-dashboard-mfe.git
+   git clone git@github.com:tn4consulting/mfe-pot-job-bank-mfe.git
+   git clone git@github.com:tn4consulting/mfe-pot-employment-insurance-mfe.git
+   git clone git@github.com:tn4consulting/mfe-pot-employment-life-events-mfe.git
    ```
-   The 4 remotes' GitHub repo names don't carry the `-mfe` suffix — only
-   their local directory/package.json/Nx/federation identity do (see
-   `CLAUDE.md`'s "Naming convention" bullet) — so clone with an explicit
-   target directory name to get the layout `mfe-pot.code-workspace` and
-   every `deploy-local.sh` expect.
+   The 4 remotes' GitHub repo names carry the `-mfe` suffix too (see
+   `CLAUDE.md`'s "Naming convention" bullet) — same as the local directory
+   name, no explicit target directory needed.
 2. Open `mfe-pot.code-workspace` in VS Code for a multi-root view across
    all 7 repos.
 3. Export your GitHub token: `export NODE_AUTH_TOKEN=<your token>`.
