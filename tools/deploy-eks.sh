@@ -104,6 +104,21 @@ else
   fail=1
 fi
 
+# unleash (feature-flag server + its own Postgres) -- backs design
+# principle 6, see TODO.md's "Design principles" section. Needs the
+# AWS-shaped Ingress host + TLS from values-eks.yaml, same as
+# otel-collector/grafana below. Longer timeout than the other bare-image
+# charts since Postgres + Unleash's own schema migration on first boot
+# takes longer than a single-container readiness probe.
+if helm upgrade --install unleash mfe-pot-platform/charts/unleash \
+    -f mfe-pot-platform/charts/unleash/values.yaml \
+    -f mfe-pot-platform/charts/unleash/values-eks.yaml --wait --timeout 180s; then
+  echo "unleash OK"
+else
+  echo "!! unleash helm upgrade failed" >&2
+  fail=1
+fi
+
 # otel-collector/grafana need the AWS-shaped Ingress host + TLS from
 # values-eks.yaml (see mfe-pot-platform/charts/otel-collector/values-eks.yaml,
 # charts/grafana/values-eks.yaml); tempo/prometheus/kube-state-metrics have
@@ -225,7 +240,7 @@ echo "=== Step 5: confirm every pod is Running ==="
 kubectl get pods
 
 echo
-echo "=== Step 6: verify all 10 hostnames serve over HTTPS ==="
+echo "=== Step 6: verify all 11 hostnames serve over HTTPS ==="
 hosts=(
   "msca.$DOMAIN_NAME"
   "job-bank.$DOMAIN_NAME"
@@ -237,6 +252,7 @@ hosts=(
   "mock-idp.$DOMAIN_NAME"
   "grafana.$DOMAIN_NAME"
   "otel.$DOMAIN_NAME"
+  "unleash.$DOMAIN_NAME"
 )
 for host in "${hosts[@]}"; do
   status=$(curl -s -o /dev/null -w '%{http_code}' "https://$host/" || echo 000)
@@ -260,7 +276,7 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 
-echo "=== All 10 hostnames deployed and verified on AWS EKS. ==="
+echo "=== All 11 hostnames deployed and verified on AWS EKS. ==="
 cat <<EOF
 
   msca-shell:               https://msca.$DOMAIN_NAME
@@ -273,6 +289,7 @@ cat <<EOF
   mock-idp:                 https://mock-idp.$DOMAIN_NAME
   grafana:                  https://grafana.$DOMAIN_NAME
   otel-collector (OTLP/HTTP ingest, not browsable): https://otel.$DOMAIN_NAME
+  unleash:                  https://unleash.$DOMAIN_NAME
 
 When the demo's done: cd mfe-pot-platform/infra/terraform/cluster &&
 terraform destroy (never foundation/ -- that holds the ECR images, Route 53

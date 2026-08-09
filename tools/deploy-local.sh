@@ -2,7 +2,8 @@
 #
 # Stands up the whole mfe-pot family on a single local kind cluster:
 # mfe-pot-platform's shared infra (Strapi, the session-cache Redis
-# instance, and mock-idp), then the 3 BFF-owning apps (job-bank,
+# instance, the Unleash feature-flag server, and mock-idp), then the 3
+# BFF-owning apps (job-bank,
 # employment-insurance, dashboard), then the 3 frontend-only apps
 # (life-events, msca-shell, job-bank-shell -- two independent
 # host apps sharing one mock-idp/Strapi, proving the federation pattern
@@ -112,7 +113,7 @@ STEP_BACKENDS=(
 # before trusting a "nothing changed" skip (e.g. after the cluster was
 # torn down and recreated without this script's state being reset).
 STEP_RELEASES=(
-  "session-cache strapi mock-idp"
+  "session-cache unleash strapi mock-idp"
   "job-bank-mfe"
   "employment-insurance-mfe"
   "dashboard-mfe"

@@ -138,10 +138,12 @@ all 5 apps already — this is what's left, not a redesign:
 - [ ] `pnpm demo:reset` — each of the 3 BFFs now has its own `POST
       /api/reset` (backed by `@tn4consulting/shared-session-cache`), but
       there's still no single cross-repo command that calls all 3 (this meta repo has no
-      root `package.json` to hang one off), and the BFF pods running on
-      `kind` today are still on the old in-memory code, not yet rebuilt
-      against the real published `@tn4consulting/shared-session-cache`. A
-      small script (a curl loop over the 3 BFFs' URLs) most naturally
+      root `package.json` to hang one off). The BFF pods running on `kind`
+      are now genuinely on the real published `@tn4consulting/shared-
+      session-cache` (rebuilt/redeployed and persistence-proved as part of
+      the "Design principles" work above) — that part of this item is
+      resolved; the missing single cross-repo reset command is what's
+      still open. A small script (a curl loop over the 3 BFFs' URLs) most naturally
       belongs in `mfe-pot-platform`'s `apps/mfe-e2e`, which already
       coordinates all the sibling repos for the composed test suite.
       `mfe-e2e`'s golden-path test still works around the underlying gap
@@ -255,19 +257,123 @@ to `shared-ui-scds`, the change that surfaced them:
       `webServer` rewire above — a pure refactor of specs/helpers in this
       repo.
 
-## Design principles (not yet documented/enforced — captured from a mobile note, needs write-up in `mfe-pot-platform/CLAUDE.md` once agreed)
+## Design principles — done (2026-08-09)
 
-- [ ] UI apps and libraries may only call their own BFF — they may not call
-      other BFFs or backend services directly.
-- [ ] BFFs must not call each other, but they may call backend services.
-- [ ] The application must be deployable without an outage (zero-downtime
-      deploys).
-- [ ] The app must survive a failure of any node without client impact.
-- [ ] Shared state (session storage) managed cross-application via Redis —
-      already in place via `@tn4consulting/shared-session-cache` (see
-      `mfe-pot-platform/CLAUDE.md`).
-- [ ] A/B testing as a first-class design principle — changes must be
-      testable at small scale for impact before full rollout.
+Six rules captured from a mobile note, now agreed, documented (see
+`mfe-pot-platform/CLAUDE.md`'s new "Design principles" section — the
+durable architecture reference; this entry is status/evidence only), and
+enforced where enforcement makes sense. Full design doc trail: none needed
+one — this was implemented directly, not planned first, following the
+audit-then-decide approach below.
+
+- [x] **UI apps and libraries may only call their own BFF** — audited,
+      already true everywhere. Enforced via a new `check-bff-boundaries`
+      CLI (`@tn4consulting/shared-platform-standards@0.2.0`), wired into
+      all 7 repos' CI and `package.json` (`pnpm run check:boundaries`).
+      Self-tested against a synthetic violation to confirm it actually
+      catches the failure shape, not just passes silently on a clean repo.
+- [x] **BFFs must not call each other** — was actually **violated**:
+      `dashboard-bff` had a `getBenefitOverview` server-to-server fan-out to
+      `job-bank-bff`/`employment-insurance-bff` (`overview.ts`,
+      `/api/overview`). Investigation found it had zero real consumers left
+      — `dashboard-mfe`'s Overview page had already stopped rendering the
+      content it fed, back when the page was redesigned to match
+      `docs/msca-screenshots/dashboard.png` — so the fix was **deletion**,
+      not a documented exception. The equivalent cross-domain content
+      (job-bank's `JobApplicationsList`, employment-insurance's
+      `ReportingStatus`) is composed in the browser instead now, via the
+      existing widget-loader (`CrossDomainWidgetTile`, `useWidgetLoader`),
+      gated behind a new `dashboard-overview-cross-domain-widgets` Unleash
+      flag (see the A/B testing item below) so `dashboard-mfe`'s Overview
+      page still matches the reference screenshot until it's rolled out.
+      Also enforced by `check-bff-boundaries`.
+      The multi-BFF trace this fan-out used to (accidentally) produce —
+      the proof point for the already-shipped Observability work — is
+      replaced with a legitimate one: `Overview.tsx` opens its own root
+      span (`startPageSpan`, `@tn4consulting/shared-observability@0.2.0`)
+      and passes the serialized `traceparent` down as a prop into each
+      widget (`withRemoteParent`), so all three widgets' BFF calls join
+      one trace with zero BFF-to-BFF hops. Confirmed with a real W3C
+      `traceparent` round-trip in tests (not mocked away).
+- [x] **The application must be deployable without an outage (zero-downtime
+      deploys)** — proved live on `employment-insurance-mfe`/`-bff` first
+      (2 replicas, explicit `RollingUpdate` strategy
+      `maxUnavailable: 0`/`maxSurge: 1`, added to `mfe-frontend-lib`/
+      `mfe-backend-lib`'s shared Deployment template, unconditional since
+      it's harmless even at `replicaCount: 1`), then generalized. **Live
+      proof, not just templated**: hammered the frontend with requests
+      through a real rolling restart on `kind` — 60/60 came back `200`.
+- [x] **The app must survive a failure of any node without client impact**
+      — same proof pass: soft pod anti-affinity (unconditional, harmless
+      no-op below `replicaCount: 2` or on a single-node cluster) plus a new
+      opt-in `PodDisruptionBudget` template (`minAvailable: 1`) in both
+      library charts. **Live proof**: force-killed one
+      `employment-insurance-bff` replica mid-traffic — 40/40 requests kept
+      getting correct responses throughout, zero outage-shaped errors.
+      Also added a genuine readiness check (`GET /ready`, round-trips the
+      BFF's own Redis-backed session cache) distinct from the bare
+      liveness check, to all 3 BFFs — **live-confirmed** by scaling
+      `session-cache` to 0: all 6 BFF pods correctly flipped to
+      `0/1 Not Ready` (removed from Service routing) within the readiness
+      probe's failure threshold, recovered within seconds of Redis coming
+      back.
+      **Generalized** to the rest of the family, after auditing each
+      remaining chart's actual statefulness rather than blindly copying
+      the pattern — a real finding changed scope: `apps/mock-idp` holds
+      two kinds of uncoordinated per-process in-memory state (one-time
+      authorization codes; its RS256 signing keypair, regenerated fresh
+      per process with no persistence) with no shared backing store, so
+      scaling it would break login intermittently — **deliberately left
+      at `replicaCount: 1`, no PDB**, documented inline in its own
+      `values.yaml` as a known gap, not silently scaled like everything
+      else. Same audit found `tempo`/`prometheus`/`strapi`/
+      `session-cache` all use local/uncoordinated storage (`emptyDir` or
+      no volume at all) — kept at `replicaCount: 1` too, but still gained
+      the explicit rolling-update `strategy` block (a no-op formalization
+      of Kubernetes' own default rounding at replicas: 1, not new
+      behavior). `otel-collector`, `grafana`, and Unleash's server (not
+      its Postgres, which has the identical "don't scale the datastore"
+      reasoning as `session-cache`) were confirmed genuinely stateless/
+      coordinated-via-Postgres and scaled to 2 replicas + PDB along with
+      every app repo's frontend+backend pair.
+- [x] **Shared state (session storage) managed cross-application via
+      Redis** — already true in code (`RedisSessionCache`, all 3 BFFs);
+      closed the operational gap this item used to flag. All 3 BFF images
+      rebuilt and redeployed against the real `@tn4consulting/shared-
+      session-cache`, replacing whatever stale in-memory-only images were
+      previously running. **Live-proved** persistence for all 3 (create
+      data → force-delete pod(s) → confirm data survived, reading from
+      real Redis) using the exact `check_persistence` pattern
+      `tools/deploy-local.sh` already codifies. Also added a last-resort
+      Express error-handling middleware to all 3 BFFs (not per-call-site
+      try/catch — Express 5 already auto-forwards a rejected async route
+      handler's promise to it) returning a typed `503
+      {error, degraded: true}` envelope instead of a bare crash. **Live-
+      proved**: scaled `session-cache` to 0 and hit a real route through
+      the Ingress mid-outage — got the degraded envelope, not a hang or a
+      raw 500 page.
+- [x] **A/B testing as a first-class design principle** — real
+      infrastructure now exists: `mfe-pot-platform/charts/unleash`
+      (self-hosted Unleash + its own bundled Postgres, hand-rolled rather
+      than pulling in Unleash's own official chart, to avoid the family's
+      first external Helm-repo dependency) plus
+      `@tn4consulting/shared-feature-flags`/`-server` (browser
+      `useFeatureFlag` hook / server `isEnabled`, mirroring the
+      `shared-auth`/`shared-auth-server` client/server split). First real
+      flag: `dashboard-overview-cross-domain-widgets`, created via a
+      percentage-rollout strategy starting at 0%, live-verified end to end
+      (bumped to 100%, confirmed via both the Frontend and Client APIs,
+      reset back to 0%). Hit and fixed a real gotcha along the way: a
+      CLIENT-type Unleash token (server SDK) and a FRONTEND-type token
+      (browser SDK) aren't interchangeable, and neither may be scoped to
+      environment `*` the way an ADMIN token can.
+
+**Not part of this pass, tracked separately**: real Redis HA (primary+
+replica or Sentinel) — `docs/plans/20260808-1800-backend-outage-resilience.md`
+already owns this; `mock-idp`'s shared-code/shared-key gap (see above); a
+general lint/test/build CI workflow for `mfe-pot-platform` itself (separate,
+pre-existing gap, noted in the "Scaling to multi-team ownership" section
+below).
 
 ## Scaling to multi-team ownership (in progress — see `docs/plans/20260808-1200-multi-team-scale-governance.md` for the full design)
 
