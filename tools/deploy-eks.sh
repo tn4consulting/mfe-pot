@@ -82,7 +82,7 @@ if ! aws eks describe-cluster --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" 
   echo "error: EKS cluster '$EKS_CLUSTER_NAME' not found in $AWS_REGION -- apply mfe-pot-platform/infra/terraform/cluster first." >&2
   exit 1
 fi
-for repo in mfe-pot-platform mfe-pot-job-bank-mfe mfe-pot-employment-insurance-mfe mfe-pot-dashboard-mfe mfe-pot-employment-life-events-mfe mfe-pot-msca-shell mfe-pot-job-bank-shell; do
+for repo in mfe-pot-platform mfe-pot-job-bank-mfe mfe-pot-employment-insurance-mfe mfe-pot-dashboard-mfe mfe-pot-life-events-mfe mfe-pot-msca-shell mfe-pot-job-bank-shell; do
   if [ ! -d "$repo" ]; then
     echo "error: $repo not found -- run this script from the mfe-pot meta repo directory (see mfe-pot.code-workspace)." >&2
     exit 1
@@ -186,7 +186,7 @@ run_workflow "mfe-pot-platform" "deploy-eks.yml"
 run_workflow "mfe-pot-job-bank-mfe" "ci.yml"
 run_workflow "mfe-pot-employment-insurance-mfe" "ci.yml"
 run_workflow "mfe-pot-dashboard-mfe" "ci.yml"
-run_workflow "mfe-pot-employment-life-events-mfe" "ci.yml"
+run_workflow "mfe-pot-life-events-mfe" "ci.yml"
 run_workflow "mfe-pot-msca-shell" "ci.yml"
 run_workflow "mfe-pot-job-bank-shell" "ci.yml"
 
@@ -208,7 +208,7 @@ hosts=(
   "dashboard-mfe.$DOMAIN_NAME"
   "job-bank-mfe.$DOMAIN_NAME"
   "employment-insurance-mfe.$DOMAIN_NAME"
-  "employment-life-events-mfe.$DOMAIN_NAME"
+  "life-events-mfe.$DOMAIN_NAME"
   "cms.$DOMAIN_NAME"
   "mock-idp.$DOMAIN_NAME"
   "grafana.$DOMAIN_NAME"
@@ -244,7 +244,7 @@ cat <<EOF
   dashboard:                https://dashboard-mfe.$DOMAIN_NAME
   job-bank:                 https://job-bank-mfe.$DOMAIN_NAME
   employment-insurance:     https://employment-insurance-mfe.$DOMAIN_NAME
-  employment-life-events:   https://employment-life-events-mfe.$DOMAIN_NAME
+  life-events:   https://life-events-mfe.$DOMAIN_NAME
   cms (Strapi):             https://cms.$DOMAIN_NAME
   mock-idp:                 https://mock-idp.$DOMAIN_NAME
   grafana:                  https://grafana.$DOMAIN_NAME

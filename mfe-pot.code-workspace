@@ -25,8 +25,8 @@
       "path": "mfe-pot-employment-insurance-mfe"
     },
     {
-      "name": "mfe-pot-employment-life-events-mfe",
-      "path": "mfe-pot-employment-life-events-mfe"
+      "name": "mfe-pot-life-events-mfe",
+      "path": "mfe-pot-life-events-mfe"
     }
   ],
   "settings": {}

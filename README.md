@@ -52,7 +52,7 @@ subagent worktree isolation.
 | [mfe-pot-dashboard-mfe](https://github.com/tn4consulting/mfe-pot-dashboard-mfe) | + `dashboard-bff`. Cross-benefit overview, payment history, correspondence. |
 | [mfe-pot-job-bank-mfe](https://github.com/tn4consulting/mfe-pot-job-bank-mfe) | + `job-bank-bff`. Job search and apply. |
 | [mfe-pot-employment-insurance-mfe](https://github.com/tn4consulting/mfe-pot-employment-insurance-mfe) | + `employment-insurance-bff`. EI application, claim status, reporting. |
-| [mfe-pot-employment-life-events-mfe](https://github.com/tn4consulting/mfe-pot-employment-life-events-mfe) | Guided "you lost your job" journey stitching the other three apps together. No BFF. |
+| [mfe-pot-life-events-mfe](https://github.com/tn4consulting/mfe-pot-life-events-mfe) | Guided "you lost your job" journey stitching the other three apps together. No BFF. |
 
 ## Getting started
 
@@ -91,7 +91,7 @@ containers), see that repo's own README.
    git clone git@github.com:tn4consulting/mfe-pot-dashboard-mfe.git
    git clone git@github.com:tn4consulting/mfe-pot-job-bank-mfe.git
    git clone git@github.com:tn4consulting/mfe-pot-employment-insurance-mfe.git
-   git clone git@github.com:tn4consulting/mfe-pot-employment-life-events-mfe.git
+   git clone git@github.com:tn4consulting/mfe-pot-life-events-mfe.git
    ```
    The 4 remotes' GitHub repo names carry the `-mfe` suffix too (see
    `CLAUDE.md`'s "Naming convention" bullet) — same as the local directory
@@ -129,7 +129,7 @@ runtime-injected config, Ingress), not `nx serve`. Each repo's
    cd ../mfe-pot-dashboard-mfe                  && pnpm deploy:local
    cd ../mfe-pot-job-bank-mfe                   && pnpm deploy:local
    cd ../mfe-pot-employment-insurance-mfe       && pnpm deploy:local
-   cd ../mfe-pot-employment-life-events-mfe     && pnpm deploy:local
+   cd ../mfe-pot-life-events-mfe     && pnpm deploy:local
    ```
    Each script builds that repo's image(s), loads them into `kind` (no
    registry round-trip), and `helm upgrade --install`s that repo's chart —
@@ -145,7 +145,7 @@ runtime-injected config, Ingress), not `nx serve`. Each repo's
    127.0.0.1 dashboard-mfe.mfe-pot.local
    127.0.0.1 job-bank-mfe.mfe-pot.local
    127.0.0.1 employment-insurance-mfe.mfe-pot.local
-   127.0.0.1 employment-life-events-mfe.mfe-pot.local
+   127.0.0.1 life-events-mfe.mfe-pot.local
    ```
    The two host apps ("front doors") keep plain brand names —
    `msca.mfe-pot.local`, `job-bank.mfe-pot.local` — while every internal
@@ -186,7 +186,7 @@ file baked into the shell's build — see `mfe-pot-platform/CLAUDE.md`'s
 
 This only swaps a **routed remote** (a full app screen). A cross-remote
 *widget* (e.g. dashboard's payment-history widget embedded in
-employment-life-events) is loaded by whichever host mediates it, through the
+life-events) is loaded by whichever host mediates it, through the
 same registry entry — the same swap works, just double-check which host
 ("shell") is doing the mediating for that particular widget (see the
 platform repo's CLAUDE.md "Federation" section).

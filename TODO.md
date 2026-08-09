@@ -16,7 +16,7 @@ to plain brand names (`msca.mfe-pot.local`, `job-bank.mfe-pot.local`) and
 every internal federated remote's Ingress host, repo name, Nx project name,
 federation identity, Docker image, and Helm chart/release were suffixed
 `-mfe` (`mfe-pot-job-bank-mfe`, `mfe-pot-dashboard-mfe`,
-`mfe-pot-employment-insurance-mfe`, `mfe-pot-employment-life-events-mfe`) —
+`mfe-pot-employment-insurance-mfe`, `mfe-pot-life-events-mfe`) —
 specifically so `job-bank-shell`'s front door and the `job-bank` remote it
 composes don't read as one hyphen apart. Each BFF and each remote's own
 business-domain naming (Nx `scope:*` tags, `libs/data-access`, CMS content
@@ -71,7 +71,7 @@ there is otherwise unchanged. Full design doc:
 ## Angular → React migration — done (2026-08)
 
 All 5 frontends converted from Angular to React, one app at a time
-(smallest first: `employment-life-events` → `shell` → `employment-insurance`
+(smallest first: `life-events` → `shell` → `employment-insurance`
 → `dashboard`), with Angular removed entirely rather than kept as a
 fallback — matching job-bank, which was React from the start and became the
 reference pattern every other app's conversion copied. Full plan and
@@ -146,7 +146,7 @@ all 5 apps already — this is what's left, not a redesign:
       coordinates all the sibling repos for the composed test suite.
       `mfe-e2e`'s golden-path test still works around the underlying gap
       with loose assertions instead of exact counts in the meantime.
-- [x] `mfe-pot-employment-life-events-mfe`'s CI had a stale `kind-validation`
+- [x] `mfe-pot-life-events-mfe`'s CI had a stale `kind-validation`
       verification step (resolved 2026-08-08): it grepped the deployed page
       for `<msca-le-root`, an element that never existed — this React app
       renders into a plain `<div id="root">`. The step's own comment claimed
@@ -299,7 +299,7 @@ the full survey.
       tsconfig.base.json.
 - [x] Rolled `shared-platform-standards` out to the remaining 5 app repos
       (`mfe-pot-msca-shell`, `mfe-pot-job-bank-shell`, `mfe-pot-job-bank-mfe`,
-      `mfe-pot-employment-insurance-mfe`, `mfe-pot-employment-life-events-mfe`)
+      `mfe-pot-employment-insurance-mfe`, `mfe-pot-life-events-mfe`)
       — mechanical repeat of the `dashboard-mfe` pilot, each verified the same
       way (temporary local `file:` link, `nx run-many -t lint,test,build --all`
       green, then reverted). **Real drift found in every repo except
@@ -384,11 +384,11 @@ Not started. See `docs/plans/mfe-pot-initial-design.md`'s
 "Demo Narrative & Experience" section for the full specifics.
 
 - [ ] Siloed-mode toggle in `mfe-pot-msca-shell` — disables the cross-service calls
-      `mfe-pot-employment-life-events-mfe`/`dashboard-bff` normally
+      `mfe-pot-life-events-mfe`/`dashboard-bff` normally
       make, so the citizen re-enters details separately and sees three
       disconnected status pages. The "before" picture for the demo.
 - [ ] Live "tell us once" demo beat — address/bank details entered once in
-      the `mfe-pot-employment-life-events-mfe` journey visibly pre-fill the EI
+      the `mfe-pot-life-events-mfe` journey visibly pre-fill the EI
       application and Job Bank profile. **Needs a redesign before it can be
       built**: this assumed crossing a real shared `client-profile-service`
       boundary reachable by all three domain BFFs, but that service has
@@ -413,8 +413,8 @@ Not started. See `docs/plans/mfe-pot-initial-design.md`'s
       showing form state preserved, CMS content swapped, currency/date
       reformatting (`1 234,56 $`), and the payment-history widget
       re-rendering in French simultaneously inside
-      `mfe-pot-employment-life-events-mfe`.
-- [ ] Payment-history widget (embedded in `mfe-pot-employment-life-events-mfe`,
+      `mfe-pot-life-events-mfe`.
+- [ ] Payment-history widget (embedded in `mfe-pot-life-events-mfe`,
       sourced from `mfe-pot-dashboard-mfe`) has its heading/table labels/status
       text CMS-driven and bilingual now (`dashboard.payment-history.*` keys
       — closed alongside the same fix for job-bank's and
@@ -554,13 +554,13 @@ per-app-role wiring point, the `propagateTraceHeaderCorsUrls` gotcha).
       existing CI workaround for other staging-cert checks) showed the same
       real per-BFF data immediately after.
       **Two things surfaced along the way, not this item's fault but worth
-      recording**: (1) `mfe-pot-employment-life-events-mfe`'s CI failed at
+      recording**: (1) `mfe-pot-life-events-mfe`'s CI failed at
       the pre-existing `kind-validation` verification step (a stale check —
       its own comment contradicts the actual curl commands run — unrelated
       to this change, `lint-test-build` passed fine), so `deploy-eks` was
       skipped and its EKS release was left stuck on a genuinely broken,
       months-old partial deploy: the Ingress was still pointing at the
-      **kind-only** hostname (`employment-life-events-mfe.mfe-pot.local`,
+      **kind-only** hostname (`life-events-mfe.mfe-pot.local`,
       never the AWS one) from an incomplete earlier rollout
       (`ProgressDeadlineExceeded`), so `msca-shell`'s `/job-loss` route
       showed the citizen-facing "temporarily unavailable" federation-load
@@ -602,7 +602,7 @@ per-app-role wiring point, the `propagateTraceHeaderCorsUrls` gotcha).
 
 `mfe-pot-msca-shell`'s sidebar nav today only lists destinations for the 4
 federated remotes that actually exist (Dashboard, Job Bank, Employment
-Insurance, plus the employment-life-events guided journey) — it doesn't
+Insurance, plus the life-events guided journey) — it doesn't
 reflect the full set of services a citizen sees on the real "Sign in to your
 account to access services for:" list on Canada.ca / MSCA:
 

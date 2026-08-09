@@ -4,7 +4,7 @@
 # mfe-pot-platform's shared infra (Strapi, the session-cache Redis
 # instance, and mock-idp), then the 3 BFF-owning apps (job-bank,
 # employment-insurance, dashboard), then the 3 frontend-only apps
-# (employment-life-events, msca-shell, job-bank-shell -- two independent
+# (life-events, msca-shell, job-bank-shell -- two independent
 # host apps sharing one mock-idp/Strapi, proving the federation pattern
 # generalizes to more than one shell). Each step just delegates to that
 # sibling repo's own tools/deploy-local.sh -- this script's only job is
@@ -87,7 +87,7 @@ STEPS=(
   "mfe-pot-job-bank-mfe"
   "mfe-pot-employment-insurance-mfe"
   "mfe-pot-dashboard-mfe"
-  "mfe-pot-employment-life-events-mfe"
+  "mfe-pot-life-events-mfe"
   "mfe-pot-msca-shell"
   "mfe-pot-job-bank-shell"
 )
@@ -111,7 +111,7 @@ STEP_RELEASES=(
   "job-bank-mfe"
   "employment-insurance-mfe"
   "dashboard-mfe"
-  "employment-life-events-mfe"
+  "life-events-mfe"
   "msca-shell"
   "job-bank-shell"
 )
@@ -377,7 +377,7 @@ cat <<EOF
   dashboard:                http://dashboard-mfe.mfe-pot.local
   job-bank:                 http://job-bank-mfe.mfe-pot.local
   employment-insurance:     http://employment-insurance-mfe.mfe-pot.local
-  employment-life-events:   http://employment-life-events-mfe.mfe-pot.local
+  life-events:   http://life-events-mfe.mfe-pot.local
   cms (Strapi):             http://cms.mfe-pot.local
 
 (all via the ingress-nginx controller on localhost -- add the above
