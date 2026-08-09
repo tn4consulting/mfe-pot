@@ -673,8 +673,42 @@ once.
       titles+bodies, consumed by `kit/ChecklistSection.tsx`/
       `EiChecklistItems.tsx`/`JobSearchChecklistItem.tsx`) is i18n-driven,
       inconsistent with each life event's own `intro` block (CMS-driven via
-      `introContentKey`). Migrate to CMS content keys for consistency.
-      Explicitly deferred during the 2026-08 Strapi content-decentralization
-      work (seeding moved from a hardcoded array in `mfe-pot-platform` to
-      fetching each app's own `content-fallback/{en,fr}.json`) rather than
-      done as part of it.
+      each page's own CMS intro key). Migrate to CMS content keys for
+      consistency. Explicitly deferred during the 2026-08 Strapi
+      content-decentralization work (seeding moved from a hardcoded array
+      in `mfe-pot-platform` to fetching each app's own
+      `content-fallback/{en,fr}.json`) rather than done as part of it.
+
+## life-events kit: SCDS/shared-package promotion (considered, deferred)
+
+Surfaced while redesigning `mfe-pot-life-events-mfe` from a schema-driven
+model to a page-per-life-event one (see that repo's CLAUDE.md). Two
+promotion questions were raised and deliberately deferred rather than
+folded into that refactor:
+
+- [ ] `ServiceLinksSection`'s card-grid CSS (`display: grid;
+      gridTemplateColumns: repeat(auto-fit, minmax(18rem, 1fr))` around
+      `scds-card`) duplicates a pattern `mfe-pot-dashboard-mfe`'s
+      `Overview.tsx` independently hand-rolls for its own card grid —
+      `shared-ui-scds-core` has no dedicated `scds-card-grid` primitive.
+      Real, proven duplication (not speculative); worth promoting a
+      presentational-only `scds-card-grid` component into
+      `mfe-pot-platform`'s `shared-ui-scds-core`, then adopting it in both
+      `life-events-mfe` and `dashboard-mfe`. Cross-repo (touches
+      `mfe-pot-platform`, a version bump, two consumers) — a separate task
+      from any single app's own work.
+- [ ] If `mfe-pot-life-events-mfe` is ever split into separate per-life-event
+      repos (today all 5 life events deliberately share one remote — see
+      that repo's CLAUDE.md), its `kit/` (`ChecklistSection`,
+      `ServiceLinksSection`, `WidgetSlot`, `LifeEventLayout`,
+      `bilingual-content.ts`) would need extracting into a new dedicated
+      shared package (the family's existing `libs/shared/*` pattern —
+      `shared-federation-runtime`, `shared-auth`, etc.), **not** into
+      `shared-ui-scds-core`: the kit carries guided-journey-specific
+      business logic (`journey.*` i18n keys, widget-loading, completion
+      state), not generic design-system primitives, and SCDS is a
+      federation-shared singleton deliberately kept low-churn. Not
+      actionable now — no such split is planned — but the kit's current
+      isolation (own folder, narrow interface) is deliberately kept cheap
+      to extract later if it happens, per the family's "extract only once
+      there's a proven second consumer" convention.
