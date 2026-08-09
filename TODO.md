@@ -616,6 +616,59 @@ per-app-role wiring point, the `propagateTraceHeaderCorsUrls` gotcha).
       All services should be HTTPS-only; add the same TLS block to
       `mfe-pot-platform/charts/grafana`'s `values-eks.yaml`/Ingress.
 
+## Strapi content organization
+
+Strapi's `page-content` collection (`mfe-pot-platform/tools/cms/strapi/`) is a
+single flat store for *all* CMS-driven text across all 6 frontend repos —
+narrative page intros, table headers, button labels, validation errors — with
+the only structure being a dot-path naming convention baked into the `key`
+string (e.g. `job-bank.search.table.title`). Nothing in the schema, admin UI,
+or `content-seed.ts` encodes or filters on that convention, so the Strapi
+admin list is one long undifferentiated scroll. Scoped 2026-08-09; design not
+yet implemented.
+
+Recommended approach — add two enum fields to the existing `page-content`
+type rather than splitting into multiple content types (kept as one type
+deliberately: this is a PoC, and a split would ripple into all 6 apps'
+`ContentClient` batch-fetch pattern for no PoC-stage benefit):
+- `app` — required enum, reliably derivable with zero guesswork from
+  `content-seed.ts`'s own `CONTENT_SOURCES[].name` (it already knows which
+  app each entry came from, since it fetches each app's own
+  `content-fallback/{en,fr}.json` over HTTP).
+- `kind` — optional enum (`label` / `help` / `content` / `message`, no
+  default — unset doubles as an admin-UI triage queue). **Not reliably
+  derivable**: sampling all 6 apps' `content-fallback/en.json` found ~155 of
+  ~160 entries have an empty `body`, including genuinely narrative-shaped
+  entries like `job-bank-shell.home.featuredTools.findJob.description` — so
+  the assumed "body present ⇒ narrative" signal doesn't actually hold. Needs
+  a best-effort key-suffix heuristic in `content-seed.ts` (`error`/
+  `unavailable` → `message`, `intro`/`hub-tile` → `content`, `hint`/`help` →
+  `help`, else → `label`), set only at entry-creation time and never
+  overwritten afterward — matching `seedPageContentEntries`'s existing
+  create-only behavior, so a human's admin-UI correction is never silently
+  reverted by the cron self-heal task.
+- No admin-UI/core-store changes needed — Strapi 5's Content Manager
+  auto-generates list-view filters/sorting for any attribute, including new
+  enums.
+
+- [ ] Found scoping this: `help`/hint text is a real, currently-unused
+      content category, not hypothetical — `scds-text-input`/`scds-picker`/
+      `scds-currency-input` (`libs/shared/ui-scds-core`) all have a
+      first-class `hint` prop, but there are zero `hint=` usages anywhere in
+      `employment-insurance-mfe`'s application wizard and zero `hint`-shaped
+      keys in any app's `content-fallback` JSON. Adding a `kind: help` value
+      gives this capability somewhere to live once a future pass wires it up.
+- [ ] Add `app`/`kind` enum attributes to
+      `tools/cms/strapi/src/api/page-content/content-types/page-content/schema.json`
+      (both `pluginOptions.i18n.localized: false`, matching the existing
+      `key` field — structural metadata, not translatable content).
+- [ ] Wire `app`/`kind` into `content-seed.ts`'s `seedPageContentEntries`
+      `.create()` call (see above).
+- [ ] One-time backfill for the ~160 entries already seeded locally: since
+      Strapi's local data is disposable (no PersistentVolume, same posture as
+      Redis), simplest is wiping and re-running the local deploy rather than
+      a one-off migration script.
+
 ## Nx build performance
 
 - [ ] Set up Nx Remote Cache to share build/test/lint cache across the team
@@ -623,34 +676,50 @@ per-app-role wiring point, the `propagateTraceHeaderCorsUrls` gotcha).
       (each of the 6 repos has its own Nx workspace since the split) rather
       than once across one big workspace.
 
-## Menu / sidebar nav scope: align with real Service Canada service list
+## Menu / sidebar nav scope: align with real Service Canada service list — done (2026-08-09)
 
-`mfe-pot-msca-shell`'s sidebar nav today only lists destinations for the 4
-federated remotes that actually exist (Dashboard, Job Bank, Employment
-Insurance, plus the life-events guided journey) — it doesn't
-reflect the full set of services a citizen sees on the real "Sign in to your
-account to access services for:" list on Canada.ca / MSCA:
+`mfe-pot-msca-shell`'s sidebar nav used to list only the 4 federated
+remotes plus 5 generic filler categories (Taxes/Financial, Health,
+Recreation/Sport, Travel, Education) that don't correspond to any real
+Service Canada program. Scoping decision made: the 5 filler categories were
+replaced with the actual programs from the real "Sign in to your account to
+access services for:" list on Canada.ca/MSCA, none of which have a backing
+remote/BFF today, so they render as inert (`disabled`) `scds-nav-link`/
+`scds-nav-group` entries labelled "(coming soon)" rather than dead or
+misleading links — grouped as "Pensions and disability benefits" (CPP, CPP
+disability, OAS, Canada Disability Benefit), "Student loans" (NSLSC, Canada
+Apprentice Loan), plus standalone Canadian Dental Care Plan, Social
+Insurance Number, and Passport entries. Employment Insurance stays a real
+link (already implemented, under the existing "Employment" group with Job
+Bank). Also fixed a pre-existing bug found while touching this file: the
+Life Events nav link referenced a `compass` icon that doesn't exist in
+`scds-icon`'s fixed icon set (`SCDS_ICON_PATHS`), so it silently rendered no
+icon at all — swapped to `activity`, freed up by removing the "Recreation/
+Sport" placeholder it used to represent.
 
-- Canadian Dental Care Plan (CDCP)
-- Employment Insurance (EI) — covered
-- Canada Pension Plan (CPP)
-- Canada Pension Plan disability
-- Old Age Security (OAS)
-- Canada Disability Benefit
-- Social Insurance Number (SIN)
-- National Student Loans Service Centre (NSLSC)
-- Canada Apprentice Loan
-- Passport
+Also added, per an explicit ask alongside this: a "Demo" nav-group at the
+very bottom of the sidebar, visually separated by its own divider, with real
+(non-inert) links to the family's other demo/observability surfaces —
+Grafana, the Strapi CMS, and the `job-bank-shell` second host. Deliberately
+not wired through new runtime-config fields: `siblingServiceUrl()`
+(`AppFrame.tsx`) derives each link by swapping the current page's own
+hostname's first label (`msca` → `grafana`/`cms`/`job-bank`), which holds on
+both kind (`msca.mfe-pot.local` → `grafana.mfe-pot.local`) and EKS
+(`msca.aws.tn4consulting.com` → `grafana.aws.tn4consulting.com`) per the
+family's existing Ingress-hostname convention — confirmed live on `kind`
+(rebuilt/redeployed the image, signed in via the real mock PKCE flow,
+expanded the group, and read back all 3 links' real `href`s matching the
+live Ingress hosts exactly). Not pursued: giving `scds-nav-link` real
+`target`/`rel` support for a cleaner new-tab affordance — its internal
+anchor doesn't expose them today, and that's a `shared-ui-scds-core`
+change (version bump + republish across the family) disproportionate to a
+cosmetic nicety; a same-tab full-page navigation to the external host works
+correctly as-is.
 
-- [ ] Update the menu to be consistent with the services actually supported
-      by Service Canada. Needs a scoping pass first: decide which of the
-      above become real (or stub/"coming soon") nav entries in
-      `mfe-pot-msca-shell` vs. which stay out of scope for this PoC — most
-      have no backing remote/BFF today (only EI is implemented; CPP/OAS/CDCP/
-      SIN/etc. would each need their own federated remote or at least a
-      placeholder route/CMS entry). Likely pairs with the existing
-      Profile/Inbox concept-screen work below rather than being fully
-      separate.
+Not done, deliberately out of scope here: no new federated remotes, BFFs,
+or placeholder routes were created for any of the 9 newly-listed programs —
+they're nav-visibility only. Likely still pairs with the Profile/Inbox
+concept-screen work below if any of these ever gets built out for real.
 
 ## Concept UI screens (from `docs/msca-screenshots/`)
 
