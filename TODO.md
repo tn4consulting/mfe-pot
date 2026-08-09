@@ -590,6 +590,26 @@ per-app-role wiring point, the `propagateTraceHeaderCorsUrls` gotcha).
       was already true by the OTel SDK's own async, decoupled export
       design even before this hardening pass; the try/catch specifically
       closes the narrower, harder-to-trigger gap of a setup-time exception.
+- [x] **Closed the "browser → collector" gap flagged above**: a real
+      browser session against `msca.mfe-pot.local` hit exactly the failure
+      predicted — `otel-collector`'s OTLP/HTTP receiver had no `cors`
+      block, so the browser's preflight `OPTIONS` got no
+      `Access-Control-Allow-Origin` and every trace export from
+      `shared-observability`'s `FetchInstrumentation` silently failed
+      (blocked by the browser, not the collector rejecting it). Fixed in
+      `mfe-pot-platform/charts/otel-collector`: added
+      `receivers.otlp.protocols.http.cors.allowed_origins`
+      (`templates/configmap.yaml`), driven by a new
+      `otelCollector.corsAllowedOrigins` values list covering both host
+      shells and all 4 remotes — kind hosts (`http://*.mfe-pot.local`) in
+      `values.yaml`, AWS hosts (`https://*.aws.tn4consulting.com`)
+      overridden in `values-eks.yaml`, same base/override split
+      `ingress.host` already uses. **Live-verified on `kind`**, not just
+      templated: `helm upgrade` + `kubectl rollout restart` (ConfigMap-only
+      change, same no-redeploy-signal gotcha as everywhere else in this
+      family), then both a real `OPTIONS` preflight and a real `POST` with
+      `Origin: http://msca.mfe-pot.local` confirmed returning
+      `Access-Control-Allow-Origin` correctly. Not yet re-verified on EKS.
 - [ ] Grafana's public Ingress (`grafana.aws.tn4consulting.com`) is served
       over plain HTTP, not HTTPS — every other public Ingress host in the
       family terminates TLS via cert-manager (`letsencrypt-staging` for now).
