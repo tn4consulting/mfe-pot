@@ -106,10 +106,13 @@ fi
 
 # otel-collector/grafana need the AWS-shaped Ingress host + TLS from
 # values-eks.yaml (see mfe-pot-platform/charts/otel-collector/values-eks.yaml,
-# charts/grafana/values-eks.yaml); tempo/prometheus have no Ingress and no
-# eks-specific values at all (cluster-internal only, identical on kind and
-# EKS). Deployed in this order -- collector needs tempo/prometheus reachable
-# before its first export attempt -- before any app that exports telemetry.
+# charts/grafana/values-eks.yaml); tempo/prometheus/kube-state-metrics have
+# no Ingress and no eks-specific values at all (cluster-internal only,
+# identical on kind and EKS). Deployed in this order -- collector needs
+# tempo/prometheus reachable before its first export attempt, and
+# kube-state-metrics needs to exist before prometheus's own scrape config
+# (which targets it by name) starts scraping -- before any app that exports
+# telemetry.
 if helm upgrade --install otel-collector mfe-pot-platform/charts/otel-collector \
     -f mfe-pot-platform/charts/otel-collector/values.yaml \
     -f mfe-pot-platform/charts/otel-collector/values-eks.yaml --wait --timeout 60s; then
@@ -127,9 +130,30 @@ else
   fail=1
 fi
 
+# Real upstream chart, referenced directly rather than vendored under
+# charts/ -- see mfe-pot-platform/tools/deploy-local.sh's identical install
+# for the rationale (its RBAC is exactly right and maintained upstream).
+if helm upgrade --install kube-state-metrics kube-state-metrics \
+    --repo https://prometheus-community.github.io/helm-charts \
+    --version 8.2.0 \
+    --set fullnameOverride=kube-state-metrics \
+    --wait --timeout 60s; then
+  echo "kube-state-metrics OK"
+else
+  echo "!! kube-state-metrics helm upgrade failed" >&2
+  fail=1
+fi
+
 if helm upgrade --install prometheus mfe-pot-platform/charts/prometheus \
     -f mfe-pot-platform/charts/prometheus/values.yaml --wait --timeout 60s; then
   echo "prometheus OK"
+  # No ConfigMap-checksum annotation on this Deployment -- a scrape-config-only
+  # change (e.g. adding the kube-state-metrics job) updates the ConfigMap but
+  # never restarts the pod on its own, so the running process keeps serving
+  # its old in-memory config indefinitely. Confirmed live on kind; same fix
+  # applied there in mfe-pot-platform/tools/deploy-local.sh.
+  kubectl rollout restart deployment/prometheus
+  kubectl rollout status deployment/prometheus --timeout=60s
 else
   echo "!! prometheus helm upgrade failed" >&2
   fail=1
