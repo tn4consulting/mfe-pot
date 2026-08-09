@@ -151,6 +151,9 @@ you want to run one repo's step in isolation or see exactly what happens.
    ```
    127.0.0.1 cms.mfe-pot.local
    127.0.0.1 mock-idp.mfe-pot.local
+   127.0.0.1 unleash.mfe-pot.local
+   127.0.0.1 otel.mfe-pot.local
+   127.0.0.1 grafana.mfe-pot.local
    127.0.0.1 msca.mfe-pot.local
    127.0.0.1 job-bank.mfe-pot.local
    127.0.0.1 dashboard-mfe.mfe-pot.local
@@ -158,6 +161,12 @@ you want to run one repo's step in isolation or see exactly what happens.
    127.0.0.1 employment-insurance-mfe.mfe-pot.local
    127.0.0.1 life-events-mfe.mfe-pot.local
    ```
+   `unleash` (feature-flag admin/API), `otel` (the OTLP/HTTP collector
+   endpoint browsers export traces to), and `grafana` (dashboards for the
+   BFF RED metrics/traces the family emits) are platform-owned demo/
+   observability surfaces, not citizen-facing apps — `tempo`/`prometheus`
+   have no Ingress at all (cluster-internal only), so they're not in this
+   list.
    The two host apps ("front doors") keep plain brand names —
    `msca.mfe-pot.local`, `job-bank.mfe-pot.local` — while every internal
    federated remote gets an `-mfe` suffix, since `job-bank.mfe-pot.local`
@@ -252,6 +261,7 @@ repos" section for the mechanism and a real gotcha to avoid.
 
 ## Where things live
 
+- **Living architecture reference** (system topology, request flows) — `docs/architecture.md`
 - **Architecture rationale, requirements, gotchas** — `mfe-pot-platform/CLAUDE.md`
 - **Outstanding cross-repo work** (hosting/CI, demo narrative, docs) — `TODO.md` in this folder
 - **Project-wide planning/design docs** — `docs/plans/` in this folder (`mfe-pot-initial-design.md` for the original design, the polyrepo-split/K8s-hosting doc for that migration's history); platform-specific planning docs, if any, live in `mfe-pot-platform`'s own `docs/plans/` instead
