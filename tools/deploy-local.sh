@@ -41,7 +41,12 @@
 #   -h, --help    show this message and exit.
 #
 # Env vars:
-#   CLUSTER_NAME        kind cluster name (default: mfe-pot)
+#   CLUSTER_NAME        kind cluster name (default: kind -- matches every
+#                       sibling repo's own tools/deploy-local.sh default
+#                       and this README's manual walkthrough, so that
+#                       running a single sibling's deploy-local.sh
+#                       afterward reuses the same cluster this script
+#                       created, without needing an explicit override)
 #   DOCKER_MIN_FREE_GB  free-disk threshold that triggers a Docker
 #                       build-cache/dangling-image prune before building
 #                       (default: 15)
@@ -71,7 +76,7 @@ for arg in "$@"; do
   esac
 done
 
-CLUSTER_NAME="${CLUSTER_NAME:-mfe-pot}"
+CLUSTER_NAME="${CLUSTER_NAME:-kind}"
 CONTEXT="kind-$CLUSTER_NAME"
 DOCKER_MIN_FREE_GB="${DOCKER_MIN_FREE_GB:-15}"
 STATE_DIR="$(dirname "${BASH_SOURCE[0]}")/../.deploy-state"

@@ -114,6 +114,17 @@ Helm — the same shape that ships to production (one image per app,
 runtime-injected config, Ingress), not `nx serve`. Each repo's
 `pnpm deploy:local` is idempotent — safe to rerun after a code change.
 
+**Fastest path**: run `tools/deploy-local.sh` from this repo. It performs
+the steps below in the right order automatically — `mfe-pot-platform`'s
+shared infra first, then the 3 BFF-owning apps, then the 3 frontend-only
+apps — and skips any sibling repo whose git tree (HEAD plus any
+uncommitted/untracked changes) hasn't changed since its last successful
+deploy and whose Helm release(s) are still present on the cluster, so a
+routine rerun after editing one app only rebuilds/redeploys that one.
+Pass `-f`/`--force` to rebuild everything regardless. The manual
+step-by-step walkthrough below is what it does under the hood — useful if
+you want to run one repo's step in isolation or see exactly what happens.
+
 1. **Deploy Strapi first** (from `mfe-pot-platform`) — it creates/reuses
    the shared `kind` cluster (named `kind` by default; override with
    `CLUSTER_NAME` if you already use that name for something else) that
@@ -190,6 +201,18 @@ life-events) is loaded by whichever host mediates it, through the
 same registry entry — the same swap works, just double-check which host
 ("shell") is doing the mediating for that particular widget (see the
 platform repo's CLAUDE.md "Federation" section).
+
+**Redeploying one app's container in place**, as an alternative to the
+`nx serve` swap above: once the shared cluster is up (via
+`tools/deploy-local.sh` or the manual walkthrough), `cd` into any single
+sibling repo and re-run `pnpm deploy:local` — it rebuilds and redeploys
+only that repo's own image(s) onto the existing shared cluster, force-
+restarting its Deployment(s) so the rebuilt image is actually picked up,
+with no effect on any other app. Slower than the `nx serve` swap (a real
+image build + `kind load` + Helm upgrade) but exercises the actual
+container/Ingress/Helm path production uses, rather than a locally-served
+dev bundle — reach for this when you specifically need to verify that
+path for one app, not for a fast edit/reload loop.
 
 ### Testing
 
