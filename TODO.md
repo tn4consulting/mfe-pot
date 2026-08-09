@@ -590,6 +590,11 @@ per-app-role wiring point, the `propagateTraceHeaderCorsUrls` gotcha).
       was already true by the OTel SDK's own async, decoupled export
       design even before this hardening pass; the try/catch specifically
       closes the narrower, harder-to-trigger gap of a setup-time exception.
+- [ ] Grafana's public Ingress (`grafana.aws.tn4consulting.com`) is served
+      over plain HTTP, not HTTPS — every other public Ingress host in the
+      family terminates TLS via cert-manager (`letsencrypt-staging` for now).
+      All services should be HTTPS-only; add the same TLS block to
+      `mfe-pot-platform/charts/grafana`'s `values-eks.yaml`/Ingress.
 
 ## Nx build performance
 
