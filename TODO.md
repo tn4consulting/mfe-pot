@@ -660,3 +660,16 @@ once.
       (candidate: shared shell-level widget, similar pattern to
       `PAYMENT_HISTORY_WIDGET_LOADER`'s host-mediated cross-remote
       composition if multiple remotes need it).
+
+## CMS content coverage
+
+- [ ] `mfe-pot-life-events-mfe`'s `journey.*` step-narrative content
+      (`public/assets/i18n/{en,fr}.json`'s job-search/EI-apply/EI-report
+      titles+bodies, consumed by `kit/ChecklistSection.tsx`/
+      `EiChecklistItems.tsx`/`JobSearchChecklistItem.tsx`) is i18n-driven,
+      inconsistent with each life event's own `intro` block (CMS-driven via
+      `introContentKey`). Migrate to CMS content keys for consistency.
+      Explicitly deferred during the 2026-08 Strapi content-decentralization
+      work (seeding moved from a hardcoded array in `mfe-pot-platform` to
+      fetching each app's own `content-fallback/{en,fr}.json`) rather than
+      done as part of it.
