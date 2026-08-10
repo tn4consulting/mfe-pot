@@ -9,100 +9,6 @@ call-outs in `mfe-pot-platform/CLAUDE.md` and the Demo Narrative section of
 those docs as items land, and prune items here once they're actually done —
 don't let this drift into a stale wishlist.
 
-## Ingress hostname scheme: front doors get plain names, remotes get -mfe — done (2026-08)
-
-Following the second-host-app work below, front-door URLs were simplified
-to plain brand names (`msca.mfe-pot.local`, `job-bank.mfe-pot.local`) and
-every internal federated remote's Ingress host, repo name, Nx project name,
-federation identity, Docker image, and Helm chart/release were suffixed
-`-mfe` (`mfe-pot-job-bank-mfe`, `mfe-pot-dashboard-mfe`,
-`mfe-pot-employment-insurance-mfe`, `mfe-pot-life-events-mfe`) —
-specifically so `job-bank-shell`'s front door and the `job-bank` remote it
-composes don't read as one hyphen apart. Each BFF and each remote's own
-business-domain naming (Nx `scope:*` tags, `libs/data-access`, CMS content
-keys, route paths like `/job-bank` within a shell) deliberately stayed
-un-suffixed — that's domain/UX identity, not hosting identity, and there
-was no collision to disambiguate there. `mock-idp`'s allowlist, Strapi's
-remote directory (`REMOTE_*_URL` env vars + seeded `name` fields), and both
-shells' `remoteName=`/`remotes` map keys all updated to match. Verified per
-repo: `nx run-many -t lint,test,build --all` green and each affected image
-builds. Full cross-repo verification — a live `kind` redeploy of all 9
-releases — confirmed every hostname serves, every remote's `remoteEntry.json`
-reports the renamed federation identity, and both shells' injected
-`runtimeConfig.remotes` correctly key by the new names. Redeploying surfaced
-two real bugs, both fixed: (1) the 4 renamed remotes' old-named Helm releases
-were still on the cluster and blocked the new releases from claiming
-already-existing resources with the same names (BFF ConfigMaps, one Ingress)
-— fixed by uninstalling the orphaned old releases first; (2) `mfe-pot-platform`'s
-own `tools/deploy-local.sh` force-restarts `mock-idp` after a rebuild but was
-missing the identical restart for `strapi` — a real, pre-existing gap (not
-new from this change) that let a rebuilt-and-loaded image sit unserved
-indefinitely, caught because it made Strapi's remote directory silently
-serve stale pre-rename data. Both fixes are now in place; Strapi's directory
-confirmed showing exactly the 4 renamed entries with no stale duplicates.
-
-## Second host app: mfe-pot-job-bank-shell — done (2026-08)
-
-Proved the Native Federation pattern generalizes to more than one host app,
-not just a single shell. `mfe-pot-shell` was renamed to `mfe-pot-msca-shell`
-in place (same git history, every internal identifier cascaded — Nx project
-name, federation name, PKCE client ID, Docker image tag, Helm chart/
-release/Ingress names, CI, deploy scripts), and a new sibling repo,
-`mfe-pot-job-bank-shell`, was scaffolded from it as a second, minimal host
-composing only the job-bank remote's own `./Component` under Job-Bank
-branding — no sidebar nav (one destination, nothing to navigate between),
-no cross-remote widget-loader Contexts, distinct identity end to end
-(dev port 4205, Ingress host, Helm release, PKCE client ID). Both hosts
-share one `mock-idp` (`ALLOWED_REDIRECT_URI_ORIGINS` now lists both
-origins) and, for msca-shell, the same 4 remotes as before — behavior
-there is otherwise unchanged. Full design doc:
-`docs/plans/20260807-1500-second-shell-host-proof-of-concept.md`.
-- **What's proven**: the pattern mechanically works for a second,
-  independently-branded, independently-deployed host app sharing the
-  platform's infra (mock-idp, Strapi, the federation-shared singletons)
-  with the original host — new repo, new Helm release, new Ingress host,
-  distinct PKCE client, all verified with `nx run-many -t lint,test,build
-  --all` green and a live `kind` deployment of both simultaneously.
-- **What's not yet proven**: sustained concurrent load against one shared
-  `mock-idp`/Strapi from two hosts, or a host composing more than one
-  remote while also being a minimal-scope PoC (job-bank-shell deliberately
-  stayed single-remote to keep the proof narrow).
-
-## Angular → React migration — done (2026-08)
-
-All 5 frontends converted from Angular to React, one app at a time
-(smallest first: `life-events` → `shell` → `employment-insurance`
-→ `dashboard`), with Angular removed entirely rather than kept as a
-fallback — matching job-bank, which was React from the start and became the
-reference pattern every other app's conversion copied. Full plan and
-rationale in `docs/plans/20260805-1200-angular-to-react-migration.md`.
-Real, hard-won lessons worth knowing if you're debugging something that
-smells like a leftover from either era:
-- The classic-vs-automatic JSX transform split (`jsxFactory: React.createElement`
-  required for anything bundled as a federation-shared/exposed chunk,
-  since `react/jsx-runtime` can't resolve once federation-shared) was the
-  single hardest-won lesson, hit and fixed independently in shell,
-  `shared-federation-runtime`, and every converted remote before it was
-  applied proactively everywhere.
-- A cross-remote widget-loader Context silently resolving to `undefined`
-  (no error, just the "unavailable" fallback rendering forever) has two
-  independent possible causes now, not one: the Context provider missing
-  above `RemoteRouteHost` in `apps/msca-shell/src/app/routes.tsx`, **or** a
-  host's own hand-written `esbuild` entry bundle not marking the Context's
-  owning package `external` (found live while verifying dashboard's own
-  conversion — see `mfe-pot-msca-shell`'s CLAUDE.md and commit history).
-- `mfe-pot-platform`'s `libs/shared/ui-gcds` (the Angular `MscaAppFrame`
-  wrapper) and `libs/shared/ui-scds` (the Angular ng-packagr wrapper
-  around `ui-scds-core`) were deleted outright once every consumer
-  converted — zero consumers left anywhere in the family, confirmed by
-  grep across all 6 repos before deleting, not just assumed.
-- Old Angular-shaped major versions of `shared-federation-runtime` (0.3.0)
-  and `shared-i18n` (0.1.x) stay published on GitHub Packages as
-  historical artifacts — nothing currently depends on them, but they
-  weren't unpublished/deprecated on the registry itself as part of this
-  cleanup (a registry action, more disruptive than a repo change — flagged
-  here rather than done unilaterally).
-
 ## Hosting / CI (in progress — see `mfe-pot-platform/CLAUDE.md`'s "Hosting: Kubernetes + Helm" section for the full story)
 
 The Docker-image + Helm-chart pattern is proven and validated on `kind` for
@@ -119,17 +25,6 @@ all 5 apps already — this is what's left, not a redesign:
       in `mfe-pot-platform`) to a registry as OCI artifacts — every app
       repo's `Chart.yaml` still references them via a sibling-checkout-relative
       `file://` path.
-- [x] ~~AKS + ACR provisioning~~ — **superseded (2026-08): cloud target
-      switched from Azure to AWS EKS**, deliberately (no technical reason —
-      the Azure account in question is unmanageable), and this pass uses real
-      Terraform IaC rather than the checked-in-CLI-script approach the
-      superseded plan recommended. Full design in
-      `docs/plans/20260808-1500-mfe-pot-aws-eks-terraform.md`; Terraform lives
-      in `mfe-pot-platform/infra/terraform/{bootstrap,foundation,cluster}`
-      (written and `terraform validate`d, not yet applied to a real account —
-      blocked on working AWS credentials). Also corrects a stale count in the
-      old plan: there are **8** public Ingress hosts today, not 5 (mock-idp
-      has its own too).
 - [ ] Land the per-app-repo half of the above: `values-eks.yaml` + Ingress TLS
       block + a `deploy-eks` CI job in each of the 6 app repos plus
       `mfe-pot-platform`'s `mock-idp`/`strapi` charts, and
@@ -141,30 +36,13 @@ all 5 apps already — this is what's left, not a redesign:
       root `package.json` to hang one off). The BFF pods running on `kind`
       are now genuinely on the real published `@tn4consulting/shared-
       session-cache` (rebuilt/redeployed and persistence-proved as part of
-      the "Design principles" work above) — that part of this item is
+      the "Design principles" work) — that part of this item is
       resolved; the missing single cross-repo reset command is what's
       still open. A small script (a curl loop over the 3 BFFs' URLs) most naturally
       belongs in `mfe-pot-platform`'s `apps/mfe-e2e`, which already
       coordinates all the sibling repos for the composed test suite.
       `mfe-e2e`'s golden-path test still works around the underlying gap
       with loose assertions instead of exact counts in the meantime.
-- [x] `mfe-pot-life-events-mfe`'s CI had a stale `kind-validation`
-      verification step (resolved 2026-08-08): it grepped the deployed page
-      for `<msca-le-root`, an element that never existed — this React app
-      renders into a plain `<div id="root">`. The step's own comment claimed
-      the app never got the runtime-config migration, but per that repo's
-      CLAUDE.md it has (`src/runtime-config.ts`/`public/env.js` were added
-      for `ContentClient`'s `strapiBaseUrl`), which is exactly why the check
-      was stale rather than correct. Fixed by switching both the
-      `kind-validation` and `deploy-eks` verification steps to check for
-      `<script src="env.js">`, matching the pattern job-bank-mfe and
-      dashboard-mfe already use (commit `8d1372d`). Confirmed green: all
-      three jobs (`lint-test-build`, `kind-validation`, `deploy-eks`) passed
-      on the next push. This was the root cause behind the stuck EKS
-      release documented in
-      `docs/plans/20260808-1630-opentelemetry-observability.md`'s "Status"
-      section, "Update 2" — that fix was a one-off; this is the underlying
-      fix so it doesn't recur.
 - [ ] `mfe-pot/tools/deploy-local.sh`'s conditional build/deploy (skip a
       sibling repo's build+deploy step when its git tree — HEAD +
       uncommitted/untracked changes — matches what was last successfully
@@ -183,67 +61,18 @@ all 5 apps already — this is what's left, not a redesign:
       unchanged (confirmed: a no-op strapi rebuild is ~1.2s, every layer
       CACHED), so this would only save the surrounding orchestration
       overhead (git pull, `helm upgrade --wait`, ingress polling).
+
 ## Stale Firebase-era functionality — resolved (2026-08-06)
 
 Firebase Hosting itself was already retired (`firebase.json`/`.firebaserc`
-gone, `mfe-pot-platform/CLAUDE.md`'s "Hosting" section says so). A few things
-built specifically to cope with Firebase's constraints (can't run Strapi, so
-needed baked-in static fallbacks) were still sitting in the codebase; audited
-and closed out:
+gone, `mfe-pot-platform/CLAUDE.md`'s "Hosting" section says so). Audit closed
+out everything except one deliberately-left cosmetic item:
 
-- [x] `mfe-pot-platform/libs/shared/remote-registry`'s
-      `StaticRemoteRegistryProvider` was genuinely dead code — confirmed via
-      grep across all 6 repos (at the time), nothing imported `@tn4consulting/shared-remote-registry`
-      at all (`mfe-pot-msca-shell/apps/msca-shell/src/main.tsx` inlines its
-      own registry logic instead — see `mfe-pot-platform/CLAUDE.md`'s bare-specifier
-      gotcha). Deleted the class, its spec, and the export in
-      `libs/shared/remote-registry/src/index.ts`; `nx test`/`build` still
-      green for the lib.
-- [x] `StaticContentClient` (`mfe-pot-platform/libs/shared/content-client`) —
-      **kept, not deleted**: confirmed it's genuinely load-bearing today, not
-      a Firebase leftover. Every app's own `*.spec.tsx` (`App.spec.tsx` in all
-      5 apps, `ReportingStatus.spec.tsx` in employment-insurance) deliberately
-      mocks `loadRuntimeConfig` to return `strapiBaseUrl: undefined`
-      specifically so content comes from `StaticContentClient`'s baked
-      fallback instead of needing a live Strapi or a fetch mock for CMS
-      content — required by `mfe-pot-platform/CLAUDE.md`'s "no dependency on
-      real external services for tests" rule. Only the class's own doc
-      comment (platform repo) still said "Firebase-hosted demo" — reworded to
-      describe the actual current reason (test isolation) instead. The 4 app
-      repos' own `STATIC_CONTENT` comments turned out to already have been
-      reworded away from Firebase phrasing at some earlier point — this
-      item's original "Baked fallback for the Firebase-hosted build" quote
-      was stale by the time this was picked up.
-- [x] `mfe-pot-platform/.claude/settings.local.json`'s dead
-      `Bash(firebase deploy *)` allowlist entry removed.
 - [ ] Lower priority, cosmetic only, deliberately left as-is:
       `tools/docker/nginx.conf` (same file copied into all 5 frontend-app
       repos) and each repo's `.gitignore` still reference "the old
       firebase.json"/"retired Firebase Hosting" in comments. Accurate
       history, not broken functionality.
-
-## `publish-shared-packages.yml` — now actually working end to end
-
-Fixed a chain of pre-existing bugs that had silently kept this workflow
-failing on every run (checked: every run on `main` before this had failed,
-several dating back days) — worth knowing since none of these are specific
-to `shared-ui-scds`, the change that surfaced them:
-- `pnpm/action-setup@v4` had no version pinned (failed immediately at
-  setup) — fixed with an explicit `version:` matching `platform-versions.json`.
-- Root `pnpm-lock.yaml` was stale relative to a new `libs/shared/*`
-  workspace project — a reminder to run `pnpm install` at the repo root
-  after adding one, not just inside the new lib's own directory.
-- The workflow's default `GITHUB_TOKEN` doesn't reliably get read/write
-  access to this org's own private `@tn4consulting/*` packages via each
-  package's individually-configured "Manage Actions access" allowlist, even
-  once correctly set (confirmed well past any reasonable propagation
-  delay) — replaced with a PAT-backed `NPM_READ_TOKEN` repo secret, applied
-  job-wide.
-- `publish-shared-lib.mjs`'s "already published, no-op" detection
-  case-sensitively matched `'cannot publish over'`, but the real registry
-  error text is `"Cannot publish over existing version"` (capital C) — so
-  the common case (re-running the workflow with no version bump) hard-failed
-  instead of no-op'ing. Fixed with a case-insensitive check.
 
 ## E2E test architecture (`mfe-pot-platform/apps/mfe-e2e`)
 
@@ -257,124 +86,6 @@ to `shared-ui-scds`, the change that surfaced them:
       `webServer` rewire above — a pure refactor of specs/helpers in this
       repo.
 
-## Design principles — done (2026-08-09)
-
-Six rules captured from a mobile note, now agreed, documented (see
-`mfe-pot-platform/CLAUDE.md`'s new "Design principles" section — the
-durable architecture reference; this entry is status/evidence only), and
-enforced where enforcement makes sense. Full design doc trail: none needed
-one — this was implemented directly, not planned first, following the
-audit-then-decide approach below.
-
-- [x] **UI apps and libraries may only call their own BFF** — audited,
-      already true everywhere. Enforced via a new `check-bff-boundaries`
-      CLI (`@tn4consulting/shared-platform-standards@0.2.0`), wired into
-      all 7 repos' CI and `package.json` (`pnpm run check:boundaries`).
-      Self-tested against a synthetic violation to confirm it actually
-      catches the failure shape, not just passes silently on a clean repo.
-- [x] **BFFs must not call each other** — was actually **violated**:
-      `dashboard-bff` had a `getBenefitOverview` server-to-server fan-out to
-      `job-bank-bff`/`employment-insurance-bff` (`overview.ts`,
-      `/api/overview`). Investigation found it had zero real consumers left
-      — `dashboard-mfe`'s Overview page had already stopped rendering the
-      content it fed, back when the page was redesigned to match
-      `docs/msca-screenshots/dashboard.png` — so the fix was **deletion**,
-      not a documented exception. The equivalent cross-domain content
-      (job-bank's `JobApplicationsList`, employment-insurance's
-      `ReportingStatus`) is composed in the browser instead now, via the
-      existing widget-loader (`CrossDomainWidgetTile`, `useWidgetLoader`),
-      gated behind a new `dashboard-overview-cross-domain-widgets` Unleash
-      flag (see the A/B testing item below) so `dashboard-mfe`'s Overview
-      page still matches the reference screenshot until it's rolled out.
-      Also enforced by `check-bff-boundaries`.
-      The multi-BFF trace this fan-out used to (accidentally) produce —
-      the proof point for the already-shipped Observability work — is
-      replaced with a legitimate one: `Overview.tsx` opens its own root
-      span (`startPageSpan`, `@tn4consulting/shared-observability@0.2.0`)
-      and passes the serialized `traceparent` down as a prop into each
-      widget (`withRemoteParent`), so all three widgets' BFF calls join
-      one trace with zero BFF-to-BFF hops. Confirmed with a real W3C
-      `traceparent` round-trip in tests (not mocked away).
-- [x] **The application must be deployable without an outage (zero-downtime
-      deploys)** — proved live on `employment-insurance-mfe`/`-bff` first
-      (2 replicas, explicit `RollingUpdate` strategy
-      `maxUnavailable: 0`/`maxSurge: 1`, added to `mfe-frontend-lib`/
-      `mfe-backend-lib`'s shared Deployment template, unconditional since
-      it's harmless even at `replicaCount: 1`), then generalized. **Live
-      proof, not just templated**: hammered the frontend with requests
-      through a real rolling restart on `kind` — 60/60 came back `200`.
-- [x] **The app must survive a failure of any node without client impact**
-      — same proof pass: soft pod anti-affinity (unconditional, harmless
-      no-op below `replicaCount: 2` or on a single-node cluster) plus a new
-      opt-in `PodDisruptionBudget` template (`minAvailable: 1`) in both
-      library charts. **Live proof**: force-killed one
-      `employment-insurance-bff` replica mid-traffic — 40/40 requests kept
-      getting correct responses throughout, zero outage-shaped errors.
-      Also added a genuine readiness check (`GET /ready`, round-trips the
-      BFF's own Redis-backed session cache) distinct from the bare
-      liveness check, to all 3 BFFs — **live-confirmed** by scaling
-      `session-cache` to 0: all 6 BFF pods correctly flipped to
-      `0/1 Not Ready` (removed from Service routing) within the readiness
-      probe's failure threshold, recovered within seconds of Redis coming
-      back.
-      **Generalized** to the rest of the family, after auditing each
-      remaining chart's actual statefulness rather than blindly copying
-      the pattern — a real finding changed scope: `apps/mock-idp` holds
-      two kinds of uncoordinated per-process in-memory state (one-time
-      authorization codes; its RS256 signing keypair, regenerated fresh
-      per process with no persistence) with no shared backing store, so
-      scaling it would break login intermittently — **deliberately left
-      at `replicaCount: 1`, no PDB**, documented inline in its own
-      `values.yaml` as a known gap, not silently scaled like everything
-      else. Same audit found `tempo`/`prometheus`/`strapi`/
-      `session-cache` all use local/uncoordinated storage (`emptyDir` or
-      no volume at all) — kept at `replicaCount: 1` too, but still gained
-      the explicit rolling-update `strategy` block (a no-op formalization
-      of Kubernetes' own default rounding at replicas: 1, not new
-      behavior). `otel-collector`, `grafana`, and Unleash's server (not
-      its Postgres, which has the identical "don't scale the datastore"
-      reasoning as `session-cache`) were confirmed genuinely stateless/
-      coordinated-via-Postgres and scaled to 2 replicas + PDB along with
-      every app repo's frontend+backend pair.
-- [x] **Shared state (session storage) managed cross-application via
-      Redis** — already true in code (`RedisSessionCache`, all 3 BFFs);
-      closed the operational gap this item used to flag. All 3 BFF images
-      rebuilt and redeployed against the real `@tn4consulting/shared-
-      session-cache`, replacing whatever stale in-memory-only images were
-      previously running. **Live-proved** persistence for all 3 (create
-      data → force-delete pod(s) → confirm data survived, reading from
-      real Redis) using the exact `check_persistence` pattern
-      `tools/deploy-local.sh` already codifies. Also added a last-resort
-      Express error-handling middleware to all 3 BFFs (not per-call-site
-      try/catch — Express 5 already auto-forwards a rejected async route
-      handler's promise to it) returning a typed `503
-      {error, degraded: true}` envelope instead of a bare crash. **Live-
-      proved**: scaled `session-cache` to 0 and hit a real route through
-      the Ingress mid-outage — got the degraded envelope, not a hang or a
-      raw 500 page.
-- [x] **A/B testing as a first-class design principle** — real
-      infrastructure now exists: `mfe-pot-platform/charts/unleash`
-      (self-hosted Unleash + its own bundled Postgres, hand-rolled rather
-      than pulling in Unleash's own official chart, to avoid the family's
-      first external Helm-repo dependency) plus
-      `@tn4consulting/shared-feature-flags`/`-server` (browser
-      `useFeatureFlag` hook / server `isEnabled`, mirroring the
-      `shared-auth`/`shared-auth-server` client/server split). First real
-      flag: `dashboard-overview-cross-domain-widgets`, created via a
-      percentage-rollout strategy starting at 0%, live-verified end to end
-      (bumped to 100%, confirmed via both the Frontend and Client APIs,
-      reset back to 0%). Hit and fixed a real gotcha along the way: a
-      CLIENT-type Unleash token (server SDK) and a FRONTEND-type token
-      (browser SDK) aren't interchangeable, and neither may be scoped to
-      environment `*` the way an ADMIN token can.
-
-**Not part of this pass, tracked separately**: real Redis HA (primary+
-replica or Sentinel) — `docs/plans/20260808-1800-backend-outage-resilience.md`
-already owns this; `mock-idp`'s shared-code/shared-key gap (see above); a
-general lint/test/build CI workflow for `mfe-pot-platform` itself (separate,
-pre-existing gap, noted in the "Scaling to multi-team ownership" section
-below).
-
 ## Scaling to multi-team ownership (in progress — see `docs/plans/20260808-1200-multi-team-scale-governance.md` for the full design)
 
 Prompted by moving to one team per repo (7 teams; `mfe-pot-platform` as the
@@ -382,83 +93,33 @@ platform/DX team). Strong *technical* contracts already exist
 (`platform-versions.json`, published `@tn4consulting/shared-*` packages,
 module-boundary enforcement, per-repo CI, a shared Renovate preset) but
 there's been zero coordination/governance tooling — see the design doc for
-the full survey.
+the full survey. `@tn4consulting/shared-platform-standards` (drift check,
+synced `PLATFORM_STANDARDS.md`, shared ESLint/Jest config,
+`platform-critical`-labelled-PR CI backstop) is now built, rolled out to all
+6 app repos, and published as `0.1.0`.
 
-- [x] `@tn4consulting/shared-platform-standards` — package built (not yet
-      published — see below) carrying `check-platform-versions` (CI/local
-      drift check against `platform-versions.json`, no sibling clone
-      required — confirmed catching real, pre-existing drift:
-      `mfe-pot-dashboard-mfe` was on `shared-ui-scds-core@1.1.0` against
-      `platform-versions.json`'s pinned `1.2.0`), a Claude-readable
-      `PLATFORM_STANDARDS.md` synced into each consuming repo's `docs/` on
-      `postinstall`, shared ESLint/Jest config (confirmed via a real
-      migration + identical `nx lint`/`nx test` results — see below), and a
-      `platform-critical`-labelled-PR CI backstop. Piloted locally on
-      `mfe-pot-dashboard-mfe` via a temporary `pnpm.overrides` `file:` link
-      (reverted after verification, per the existing technique for testing
-      an unpublished shared lib).
-      **Discovered piloting it**: sharing `tsconfig.base.json` via a real
-      `extends` doesn't work in this family — Native Federation's build
-      step (`@softarc/sheriff-core`) throws once the extended config lives
-      in `node_modules`, for every app repo, not just this one. Ships as a
-      documented reference file instead; each repo keeps its own inline
-      tsconfig.base.json.
-- [x] Rolled `shared-platform-standards` out to the remaining 5 app repos
-      (`mfe-pot-msca-shell`, `mfe-pot-job-bank-shell`, `mfe-pot-job-bank-mfe`,
-      `mfe-pot-employment-insurance-mfe`, `mfe-pot-life-events-mfe`)
-      — mechanical repeat of the `dashboard-mfe` pilot, each verified the same
-      way (temporary local `file:` link, `nx run-many -t lint,test,build --all`
-      green, then reverted). **Real drift found in every repo except
-      `employment-insurance-mfe`** (already on `shared-ui-scds-core@1.2.0`):
-      the other 5 are all on `shared-ui-scds-core@1.1.0` against the pinned
-      `1.2.0`, and `mfe-pot-msca-shell`/`mfe-pot-job-bank-shell` are also on
-      `shared-federation-runtime@1.0.2` against the pinned `1.0.1` — real,
-      pre-existing, previously-invisible drift across most of the family,
-      exactly the failure mode this tool exists to surface. Not fixed as
-      part of this rollout (a version bump is a separate decision); each
-      repo's new `check:versions` CI step will now fail until it's
-      addressed. All 6 app repos still need `@tn4consulting/shared-platform-standards`
-      actually published to GitHub Packages before any of this is live in
-      CI (see the package's own `devDependency` entries, currently pointing
-      at a version not yet on the registry) — publishing, committing, and
-      pushing are separate, deliberately not done as part of this pass.
-- [x] `@tn4consulting/shared-platform-standards@0.1.0` **published** (2026-08-08,
-      manually, via a personal `write:packages`-scoped token — `mfe-pot-platform`'s
-      own `publish-shared-packages.yml` run failed on it twice, both times
-      with `403 ... The token provided does not match expected scopes`, not
-      the usual "already published, no-op" case `publish-shared-lib.mjs`
-      already handles). Root cause matches this same workflow's own
-      long-standing comment: each `@tn4consulting/*` package needs its own
-      **manual, one-time "Manage Actions access" grant** (GitHub → the
-      package's own Settings → Actions access → add `mfe-pot-platform`) —
-      every existing package already has this grant from whenever it was
-      first published; a genuinely new package doesn't, and the repo-wide
-      `NPM_READ_TOKEN` PAT's scope alone isn't enough to bypass it. Package
-      is real and consumable today (`pnpm install` in any app repo resolves
-      it normally) — only *future* CI-driven version bumps to this specific
-      package are blocked until someone with package-admin rights grants
-      that access. Worth doing before this package's first real version
-      bump (e.g. once the `tsconfig.base.json`-sharing limitation gets
-      revisited), or CI will silently 403 again.
 - [ ] Ownership map (repo table in `README.md`/`CLAUDE.md`), CODEOWNERS per
       repo, CONTRIBUTING.md per repo, PR/issue templates, the
       breaking-change/deprecation protocol (14-day adoption window before
       `platform-critical` CI backstop trips — see the design doc's item 4).
       All design-only so far.
-- [x] `mfe-pot-platform` has no lint/test/build CI workflow at all — only
-      `publish-shared-packages.yml`/`deploy-eks.yml` exist, despite its own
-      `CLAUDE.md` claiming a single `nx affected` workflow runs there.
-      Discovered auditing this area, unrelated to it otherwise. Fixed
-      alongside `shared-platform-standards`: new
-      `.github/workflows/version-check.yml` runs `pnpm run check:versions`
-      — still no general lint/test/build workflow, that part stays open.
-- [x] `publish-shared-packages.yml` had two dead steps (`Publish shared-ui-scds`,
-      `Publish shared-ui-gcds`) referencing `libs/shared/ui-scds`/`ui-gcds`
-      directories that no longer exist — both libs were deleted outright
-      once GCDS was removed from the family (see the "Angular → React
-      migration" section above), but the publish steps were never cleaned
-      up, so every run of this workflow was failing partway through.
-      Removed both steps.
+- [ ] `mfe-pot-platform` still has no general lint/test/build CI workflow —
+      only `publish-shared-packages.yml`, `deploy-eks.yml`, and a new
+      `version-check.yml` (`pnpm run check:versions`) exist, despite its own
+      `CLAUDE.md` once claiming a single `nx affected` workflow runs there.
+- [ ] Real version drift found by the new `check-platform-versions` tool,
+      not yet fixed: 5 of 6 app repos are on `shared-ui-scds-core@1.1.0`
+      against `platform-versions.json`'s pinned `1.2.0`, and
+      `mfe-pot-msca-shell`/`mfe-pot-job-bank-shell` are also on
+      `shared-federation-runtime@1.0.2` against the pinned `1.0.1`. Each
+      repo's new `check:versions` CI step will fail until addressed (a
+      version bump is a separate decision from the rollout itself).
+- [ ] Grant `mfe-pot-platform`'s Actions access to
+      `@tn4consulting/shared-platform-standards` on GitHub (package →
+      Settings → Actions access → add `mfe-pot-platform`) before its next
+      version bump — CI-driven publishing 403s without this manual,
+      one-time grant, same as it did for the initial `0.1.0` publish (worked
+      around manually that time).
 
 ## Backend-outage resilience — design only, not started
 
@@ -593,129 +254,6 @@ Full design, gotchas hit, and exactly what was/wasn't verified live:
 the durable architecture reference (federation-sharing decision,
 per-app-role wiring point, the `propagateTraceHeaderCorsUrls` gotcha).
 
-- [x] Two new shared packages (`@tn4consulting/shared-observability-server`,
-      `@tn4consulting/shared-observability`), four new Helm charts
-      (`otel-collector`/`tempo`/`prometheus`/`grafana`, deployed once,
-      shared across the family like `session-cache`), and every BFF/frontend
-      repo's wiring (`main.ts`/`runtime-config.ts`/`bootstrap.tsx`, every
-      chart's `values.yaml` + `values-eks.yaml`) — all landed. `deploy-local.sh`
-      and `deploy-eks.sh` both sequence the 4 new releases.
-- [x] Live-verified on `kind`: all 4 charts Ready, both new public Ingress
-      hosts (`otel`/`grafana`) serving, Grafana's Tempo/Prometheus
-      datasources auto-provisioned, Prometheus actively scraping the
-      collector, and a real span (emitted by the actual built
-      `shared-observability-server` package, not a hand-crafted payload)
-      confirmed queryable in Tempo both directly and through Grafana's own
-      proxy.
-- [x] Provisioned "BFF RED metrics" Grafana dashboard (request rate/error
-      rate/p50+p95+p99 duration, per service — `charts/grafana/dashboards/bff-red-metrics.json`,
-      loaded via file provisioning so it survives a pod restart, not
-      clicked together by hand). Built on Tempo's span-metrics processor
-      (RED derived from spans, `remote_write`d into Prometheus) rather than
-      each BFF's own HTTP auto-instrumentation metrics — see the plan doc's
-      "Gotchas hit" for why (a real ESM-vs-CJS `require-in-the-middle`
-      nuance, confirmed to not affect any real BFF, which all compile to
-      CJS). Confirmed populated with real synthetic traffic before landing.
-- [x] Both packages published to GitHub Packages (`@tn4consulting/shared-observability-server@0.1.0`,
-      `@tn4consulting/shared-observability@0.1.0`), all 9 app images rebuilt
-      and redeployed to `kind` with the real code. Live-confirmed: a single
-      `curl` to `dashboard-mfe.mfe-pot.local/api/overview` produced one
-      trace ID spanning `dashboard-bff`'s incoming request → its outgoing
-      calls to `job-bank-bff` and `employment-insurance-bff` → each of
-      their own request handling and Redis calls — the exact cross-BFF
-      scenario this item asked for. The Grafana RED dashboard immediately
-      showed real per-BFF request/error/duration data, not synthetic test
-      traffic. **Narrower than "browser → BFF" though**: this proved
-      BFF-to-BFF propagation (server-to-server `fetch`/undici), not yet the
-      browser leg specifically (`shared-observability`'s
-      `propagateTraceHeaderCorsUrls` mechanism, exercised only via a
-      hand-crafted OTLP payload earlier, never from an actual deployed
-      frontend pod's own JS) — a real browser session against
-      `msca.mfe-pot.local` would be needed to close that last gap.
-      **Real, unrelated infra gotcha hit along the way**: `helm upgrade
-      --wait` was unreliable redeploying to this cluster (timed out on
-      rollout-readiness polling even though images/manifests applied
-      cleanly and the node wasn't resource-starved) — root cause not fully
-      isolated, but the cluster's ReplicaSet history showed many more
-      rollouts than this session performed, consistent with other
-      concurrent sessions also deploying to the same shared cluster around
-      the same time. Worked around by applying without `--wait`, then an
-      explicit `kubectl rollout restart` + `kubectl rollout status` to
-      confirm health directly — same net effect, just sidesteps whatever
-      made Helm's own polling flaky.
-- [x] Confirmed the same end-to-end trace on the real AWS EKS deployment
-      (`docs/plans/20260808-1500-mfe-pot-aws-eks-terraform.md`). Pushing the
-      6 app repos' commits auto-triggered their `deploy-eks` CI jobs (the
-      cluster already existed); the 4 new charts have no CI job of their
-      own (bare upstream images, nothing to build), so were deployed
-      directly via `helm upgrade --install` the same way `session-cache`
-      already is. Real trace ID confirmed via `curl
-      https://dashboard-mfe.aws.tn4consulting.com/api/overview`, spanning
-      `dashboard-bff` → `job-bank-bff` and `dashboard-bff` →
-      `employment-insurance-bff` over the actual AWS network (real NLB, DNS
-      via external-dns, TLS via cert-manager) — identical span structure to
-      the `kind` trace. The Grafana RED dashboard
-      (`https://grafana.aws.tn4consulting.com`, `letsencrypt-staging` cert
-      for now — untrusted by default clients, same as this project's
-      existing CI workaround for other staging-cert checks) showed the same
-      real per-BFF data immediately after.
-      **Two things surfaced along the way, not this item's fault but worth
-      recording**: (1) `mfe-pot-life-events-mfe`'s CI failed at
-      the pre-existing `kind-validation` verification step (a stale check —
-      its own comment contradicts the actual curl commands run — unrelated
-      to this change, `lint-test-build` passed fine), so `deploy-eks` was
-      skipped and its EKS release was left stuck on a genuinely broken,
-      months-old partial deploy: the Ingress was still pointing at the
-      **kind-only** hostname (`life-events-mfe.mfe-pot.local`,
-      never the AWS one) from an incomplete earlier rollout
-      (`ProgressDeadlineExceeded`), so `msca-shell`'s `/job-loss` route
-      showed the citizen-facing "temporarily unavailable" federation-load
-      fallback in production. **Fixed directly**: built and pushed a fresh
-      image to ECR by hand (bypassing the blocked CI), then
-      `helm upgrade --install` with both `values.yaml` and
-      `values-eks.yaml` — confirmed the Ingress now serves the correct AWS
-      hostname and DNS/TLS both resolve. The stale `kind-validation` check
-      itself is still unfixed and worth someone's attention so this doesn't
-      recur on the next push. (2) Found and cleaned up a handful of stray
-      EKS pods stuck in `ErrImageNeverPull` (using the kind-only
-      `pullPolicy: Never` instead of the EKS `IfNotPresent`) predating this
-      work, from earlier CI/deploy activity.
-- [x] **Client-impact hardening, prompted by an explicit ask**: both
-      `initNodeObservability` and `initBrowserObservability` now wrap their
-      SDK setup in try/catch and log-and-continue rather than throw — a
-      collector outage or an unexpected SDK-internal failure must never
-      become a new source of downtime for a citizen-facing BFF/page.
-      Published as `0.1.1` and rolled out to all 6 app repos (via
-      `pnpm update`, not just a plain `pnpm install` — a plain install
-      respects an already-resolved lockfile version within the same semver
-      range and won't pick up a patch bump on its own, a real gotcha hit
-      doing this). **Verified live, not just by code inspection**: scaled
-      `otel-collector` to 0 replicas on `kind` and hit `dashboard-bff`'s
-      real fan-out 5 times in a row — identical ~30-40ms latency, all 7
-      tiles still `ok`, zero errors in the BFF's own logs. Confirms what
-      was already true by the OTel SDK's own async, decoupled export
-      design even before this hardening pass; the try/catch specifically
-      closes the narrower, harder-to-trigger gap of a setup-time exception.
-- [x] **Closed the "browser → collector" gap flagged above**: a real
-      browser session against `msca.mfe-pot.local` hit exactly the failure
-      predicted — `otel-collector`'s OTLP/HTTP receiver had no `cors`
-      block, so the browser's preflight `OPTIONS` got no
-      `Access-Control-Allow-Origin` and every trace export from
-      `shared-observability`'s `FetchInstrumentation` silently failed
-      (blocked by the browser, not the collector rejecting it). Fixed in
-      `mfe-pot-platform/charts/otel-collector`: added
-      `receivers.otlp.protocols.http.cors.allowed_origins`
-      (`templates/configmap.yaml`), driven by a new
-      `otelCollector.corsAllowedOrigins` values list covering both host
-      shells and all 4 remotes — kind hosts (`http://*.mfe-pot.local`) in
-      `values.yaml`, AWS hosts (`https://*.aws.tn4consulting.com`)
-      overridden in `values-eks.yaml`, same base/override split
-      `ingress.host` already uses. **Live-verified on `kind`**, not just
-      templated: `helm upgrade` + `kubectl rollout restart` (ConfigMap-only
-      change, same no-redeploy-signal gotcha as everywhere else in this
-      family), then both a real `OPTIONS` preflight and a real `POST` with
-      `Origin: http://msca.mfe-pot.local` confirmed returning
-      `Access-Control-Allow-Origin` correctly. Not yet re-verified on EKS.
 - [ ] Grafana's public Ingress (`grafana.aws.tn4consulting.com`) is served
       over plain HTTP, not HTTPS — every other public Ingress host in the
       family terminates TLS via cert-manager (`letsencrypt-staging` for now).
@@ -809,51 +347,6 @@ deliberately: this is a PoC, and a split would ripple into all 6 apps'
       and CI — https://nx.dev/ci/features/remote-cache. Now relevant per-repo
       (each of the 6 repos has its own Nx workspace since the split) rather
       than once across one big workspace.
-
-## Menu / sidebar nav scope: align with real Service Canada service list — done (2026-08-09)
-
-`mfe-pot-msca-shell`'s sidebar nav used to list only the 4 federated
-remotes plus 5 generic filler categories (Taxes/Financial, Health,
-Recreation/Sport, Travel, Education) that don't correspond to any real
-Service Canada program. Scoping decision made: the 5 filler categories were
-replaced with the actual programs from the real "Sign in to your account to
-access services for:" list on Canada.ca/MSCA, none of which have a backing
-remote/BFF today, so they render as inert (`disabled`) `scds-nav-link`/
-`scds-nav-group` entries labelled "(coming soon)" rather than dead or
-misleading links — grouped as "Pensions and disability benefits" (CPP, CPP
-disability, OAS, Canada Disability Benefit), "Student loans" (NSLSC, Canada
-Apprentice Loan), plus standalone Canadian Dental Care Plan, Social
-Insurance Number, and Passport entries. Employment Insurance stays a real
-link (already implemented, under the existing "Employment" group with Job
-Bank). Also fixed a pre-existing bug found while touching this file: the
-Life Events nav link referenced a `compass` icon that doesn't exist in
-`scds-icon`'s fixed icon set (`SCDS_ICON_PATHS`), so it silently rendered no
-icon at all — swapped to `activity`, freed up by removing the "Recreation/
-Sport" placeholder it used to represent.
-
-Also added, per an explicit ask alongside this: a "Demo" nav-group at the
-very bottom of the sidebar, visually separated by its own divider, with real
-(non-inert) links to the family's other demo/observability surfaces —
-Grafana, the Strapi CMS, and the `job-bank-shell` second host. Deliberately
-not wired through new runtime-config fields: `siblingServiceUrl()`
-(`AppFrame.tsx`) derives each link by swapping the current page's own
-hostname's first label (`msca` → `grafana`/`cms`/`job-bank`), which holds on
-both kind (`msca.mfe-pot.local` → `grafana.mfe-pot.local`) and EKS
-(`msca.aws.tn4consulting.com` → `grafana.aws.tn4consulting.com`) per the
-family's existing Ingress-hostname convention — confirmed live on `kind`
-(rebuilt/redeployed the image, signed in via the real mock PKCE flow,
-expanded the group, and read back all 3 links' real `href`s matching the
-live Ingress hosts exactly). Not pursued: giving `scds-nav-link` real
-`target`/`rel` support for a cleaner new-tab affordance — its internal
-anchor doesn't expose them today, and that's a `shared-ui-scds-core`
-change (version bump + republish across the family) disproportionate to a
-cosmetic nicety; a same-tab full-page navigation to the external host works
-correctly as-is.
-
-Not done, deliberately out of scope here: no new federated remotes, BFFs,
-or placeholder routes were created for any of the 9 newly-listed programs —
-they're nav-visibility only. Likely still pairs with the Profile/Inbox
-concept-screen work below if any of these ever gets built out for real.
 
 ## Concept UI screens (from `docs/msca-screenshots/`)
 
