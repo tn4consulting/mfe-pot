@@ -179,7 +179,12 @@ you want to run one repo's step in isolation or see exactly what happens.
    or verify any single app with curl, e.g.
    `curl -H "Host: job-bank-mfe.mfe-pot.local" http://localhost/`. First visit
    to `http://cms.mfe-pot.local/admin` prompts you to create the Strapi
-   admin account (no default credentials are seeded).
+   admin account (no default credentials are seeded). `http://unleash.mfe-pot.local`
+   works differently: `charts/unleash` only bootstraps its three API tokens
+   (`INIT_ADMIN_API_TOKENS`/`INIT_CLIENT_API_TOKENS`/`INIT_FRONTEND_API_TOKENS`
+   in `mfe-pot-platform/charts/unleash/values.yaml`) on startup, not a UI
+   password, so the admin UI login is Unleash's own out-of-the-box default
+   (`admin` / `unleash4all`) rather than anything this family sets.
 
 ### Iterating on one app without a full kind rebuild
 
