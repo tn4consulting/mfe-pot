@@ -722,6 +722,34 @@ per-app-role wiring point, the `propagateTraceHeaderCorsUrls` gotcha).
       All services should be HTTPS-only; add the same TLS block to
       `mfe-pot-platform/charts/grafana`'s `values-eks.yaml`/Ingress.
 
+## Federation remote-loading integrity — not started
+
+Scoped 2026-08-10, prompted by a question about shell/remote trust
+boundaries. `mfe-pot-msca-shell`'s `main.tsx` fetches its federation
+manifest (remote names → `remoteEntry.json` URLs) from Strapi's
+`/api/remotes` at runtime and hands each URL straight to
+`initFederation()`/`loadRemoteModule` with no integrity check —
+`mfe-pot-job-bank-shell` presumably follows the same pattern. A compromised
+Strapi entry or a MITM'd `remoteEntry.json` response is effectively
+arbitrary code execution in the shell's origin, not just tampered content,
+since Native Federation fetches and evaluates that JS directly.
+
+- [ ] Design Subresource Integrity (SHA-384) for federated remote loading:
+      each remote build emits a hash of its own `remoteEntry.json`
+      (and/or exposed chunks), the hash gets published alongside the
+      manifest entry (Strapi's `/api/remotes` schema, or the CI publish
+      step), and both shells verify it before `loadRemoteModule` executes
+      the fetched code.
+- [ ] Decide how the hash travels from a remote's own build/CI to Strapi's
+      seeded manifest data without becoming another manually-maintained
+      cross-repo sync point (`platform-versions.json`-style drift is the
+      failure mode to avoid).
+      Deliberately not started — real complexity (every one of the 4
+      remotes' CI needs to emit and publish a hash, kept in sync across
+      independently-deployed repos) for a PoC/demo project; worth doing as
+      a dedicated security-hardening pass rather than folded into other
+      work.
+
 ## Strapi content organization
 
 Strapi's `page-content` collection (`mfe-pot-platform/tools/cms/strapi/`) is a
