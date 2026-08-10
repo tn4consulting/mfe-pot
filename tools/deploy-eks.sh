@@ -26,7 +26,8 @@
 #
 # Needs: `gh` CLI authenticated with a token that can trigger workflow runs
 # on every tn4consulting/mfe-pot-* repo (`gh auth status`), `aws` CLI with
-# working credentials, `kubectl`/`helm` installed.
+# working credentials, `kubectl`/`helm` installed, and `node` (runs
+# mfe-pot-platform/tools/scripts/seed-unleash-flags.mjs in Step 7).
 #
 # Usage: tools/deploy-eks.sh [-h|--help]
 #
@@ -271,6 +272,32 @@ for host in "${hosts[@]}"; do
 done
 
 echo
+if [ "$fail" -ne 0 ]; then
+  echo "Done with failures -- see !! lines above." >&2
+  exit 1
+fi
+
+echo
+echo "=== Step 7: seed Unleash feature flags ==="
+# Same idempotent script tools/deploy-local.sh calls for kind, run here
+# only now that Step 6 just proved unleash.$DOMAIN_NAME actually resolves,
+# terminates real TLS, and routes -- a fresh cert-manager (letsencrypt-prod,
+# HTTP-01 challenge) + Route 53 record can take longer to become reachable
+# than unleash's own helm --wait, so this deliberately runs after that
+# proof rather than racing it. UNLEASH_CONNECT_HOST/UNLEASH_HOSTNAME are
+# the same real DNS name here -- unlike kind, no Host-header-over-localhost
+# trick is needed once DNS genuinely resolves (see the script's own header
+# comment).
+if UNLEASH_PROTOCOL=https \
+   UNLEASH_CONNECT_HOST="unleash.$DOMAIN_NAME" \
+   UNLEASH_HOSTNAME="unleash.$DOMAIN_NAME" \
+   node mfe-pot-platform/tools/scripts/seed-unleash-flags.mjs; then
+  echo "unleash flags OK"
+else
+  echo "!! seed-unleash-flags.mjs failed" >&2
+  fail=1
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "Done with failures -- see !! lines above." >&2
   exit 1
