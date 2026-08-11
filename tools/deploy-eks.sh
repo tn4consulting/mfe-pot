@@ -19,6 +19,13 @@
 # repo's already-built `deploy-eks` job via workflow_dispatch instead of
 # requiring an empty commit to each of the 7 repos.
 #
+# This is a redeploy, not a rebuild: every repo's workflow_dispatch defaults
+# to skip_build=true, so this script deploys whatever image that commit's
+# own push-triggered CI run already published to GHCR -- it does NOT
+# recompile from source (mirrors GHCR -> ECR instead, a cheap pull+retag+
+# push). If you need a fresh build of the current main HEAD first (e.g. to
+# pre-warm GHCR before a demo), run tools/build-all.sh first, then this.
+#
 # Run from the mfe-pot meta repo directory (the parent of all the sibling
 # checkouts -- see mfe-pot.code-workspace), after infra/terraform/cluster has
 # been applied and its Route 53/GitHub-OIDC prerequisites in
