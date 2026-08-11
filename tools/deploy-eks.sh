@@ -256,14 +256,22 @@ hosts=(
   "unleash.$DOMAIN_NAME"
 )
 for host in "${hosts[@]}"; do
-  status=$(curl -s -o /dev/null -w '%{http_code}' "https://$host/" || echo 000)
-  if [ "$status" = "200" ] || [ "$status" = "404" ]; then
+  # curl already prints its own "000" http_code placeholder via -w before
+  # exiting non-zero on a connection failure, so this fallback only needs
+  # to cover the case where -w produced no output at all (e.g. curl itself
+  # missing) -- an unconditional `|| echo 000` here would double up into
+  # "000000" on a real connection failure.
+  status=$(curl -s -o /dev/null -w '%{http_code}' "https://$host/")
+  status=${status:-000}
+  if [ "$status" = "200" ] || [ "$status" = "404" ] || [ "$status" = "302" ]; then
     # mock-idp's own "/" isn't a real page (it's an API-shaped service --
     # see its own Ingress, everything is under /authorize, /token, etc.), so
     # a 404 there still proves TLS + DNS + routing all worked; same story
     # for otel's "/" (the collector's OTLP/HTTP receiver only handles POST
     # to /v1/traces and /v1/metrics) -- anywhere else a 404 would be worth a
-    # second look.
+    # second look. cms (Strapi's admin login) and grafana (its own login
+    # page) redirect "/" with a 302 -- also proves TLS + DNS + routing all
+    # worked, just not a bare 200.
     echo "OK   $host (HTTP $status)"
   else
     echo "!!   $host (HTTP $status)" >&2
