@@ -2,211 +2,211 @@
 
 ## Status
 
-Design only — not started. Elaborates `../TODO.md`'s "Federation remote-loading
-integrity" item (scoped 2026-08-10), broadened from a same-family
-self-published-hash design into a two-tier trust model after the requirement
-was clarified: the design also needs to cover remotes from providers outside
-this family's control (e.g. a province operating its own MFE and plugging it
-into a shell we run), not only the four remotes we build ourselves.
+**Implemented.** Phase 1 (job-bank-mfe → job-bank-shell, proving the
+mechanism end to end) and Phase 2 (generalizing to `dashboard-mfe`,
+`employment-insurance-mfe`, `life-events-mfe`, and `msca-shell`, the
+primary demo shell) are both live — all 4 remotes sign their federation
+manifest in CI, both shells (`msca-shell`, `job-bank-shell`) verify before
+loading. Everything below this point was rewritten post-implementation to
+describe what was actually built, not the original design sketch — see
+"History" at the bottom for how the design changed along the way.
 
-## Context
+## The problem this closes
 
-`mfe-pot-msca-shell`'s and `mfe-pot-job-bank-shell`'s `main.tsx` are
-byte-for-byte identical in the relevant logic (each carries its own inlined
-copy — `main.tsx` runs before Native Federation's shared scope exists, so it
-can't import `@tn4consulting/shared-*`, including the reusable
-`shared-remote-registry` logic that has a fuller version of this same code).
-`resolveFederationManifest()` fetches Strapi's `/api/remotes` with a 3s
-timeout, falls back to `runtimeConfig.remotes` (dev defaults or a
-Helm-ConfigMap-injected map) on failure, and produces a plain `name -> url`
-map:
+`mfe-pot-msca-shell`'s and `mfe-pot-job-bank-shell`'s `main.tsx` fetch a
+federation manifest (remote name → `remoteEntry.json` URL) from Strapi's
+`/api/remotes` at runtime and, before this work, handed the URL straight to
+Native Federation's `loadRemoteModule`, which fetches and evaluates that JS
+directly. A compromised Strapi entry or a MITM'd `remoteEntry.json`
+response was effectively arbitrary code execution in the shell's origin.
 
-```ts
-// apps/msca-shell/src/main.tsx (job-bank-shell: same shape)
-interface StrapiRemoteAttributes { name: string; url: string; }
-interface StrapiListResponse { data: StrapiRemoteAttributes[]; }
+## What was built: one signature mechanism, not two tiers
+
+The original design sketch (see "History" below) split this into a
+same-family "Tier 1" (a self-published SHA-384 hash) and a hypothetical
+third-party "Tier 2" (signed manifest + trust registry). That split didn't
+survive contact with its own threat model: a hash that only travels over
+an authenticated-Strapi-write channel doesn't defend against a compromised
+Strapi entry — the very threat it was scoped to close, since an attacker
+who can write to Strapi can write a matching hash too. **What's actually
+built is one mechanism for every remote**, first-party or (hypothetically,
+still no real example) third-party: a signed manifest, verified against a
+trust registry that never travels over Strapi or any other network path
+shared with the thing being verified. "First-party vs. third-party"
+survives only as a property of *how a registry entry gets provisioned*
+(automatic, our own CI-held key vs. manual, out-of-band vetting for an
+external partner) — never a different runtime code path.
+
+## The new library: `@tn4consulting/shared-remote-integrity`
+
+Published from `mfe-pot-platform` (`libs/shared/remote-integrity`),
+currently `0.3.0`. Not federation-shared (doesn't need to be — it only
+ever runs inside a single shell's own bundle or a remote's own CI, never
+across a federation boundary).
+
+- `sha384Base64`, `verifyRemoteManifest`, `createVerifiedRemoteModuleLoader`
+  — the verification primitives, `jose`-backed (RS256 — reuses the exact
+  pattern already proven by `shared-auth-server`'s JWT verification and
+  `mock-idp`'s key generation, rather than introducing a new crypto
+  dependency).
+- `bin/sign-remote-manifest.mjs` — the CI-side signing CLI. Reads a built
+  `dist/apps/<app>/browser/`, SHA-384-hashes `remoteEntry.json` and
+  *every* file its `exposes[]` list references (not just the manifest —
+  `exposes` entries have plain, non-content-hashed filenames, so nothing
+  else ties their bytes to the manifest's own hash), signs the resulting
+  claims as a 30-day-bounded compact JWS, writes `remoteEntry.json.sig`
+  alongside the manifest.
+- `bin/sync-trusted-remotes.mjs` — copies this package's own bundled
+  `trusted-remotes.json` into a consuming shell's working tree via a
+  `postinstall` script (same mechanism `shared-platform-standards`'s
+  `sync-platform-standards` already uses for `PLATFORM_STANDARDS.md`).
+  This is *why* the trust registry lives inside this package rather than
+  at `mfe-pot-platform`'s repo root next to `platform-versions.json`: it
+  has to ship inside a shell's own build output, and `platform-versions.json`'s
+  live-fetched-by-a-separate-CLI consumption model doesn't fit that.
+
+## The trust registry
+
+`libs/shared/remote-integrity/trusted-remotes.json` — the actual root of
+trust, committed and PR-reviewed, never written by CI. All 4 remotes are
+registered, each with an RSA public JWK, a `kid`, and — a real correction
+made partway through implementation — `allowedOrigins: string[]`, not a
+single `allowedOrigin: string`. The same signed image is legitimately
+served from more than one origin (`http://X.mfe-pot.local` on kind,
+`https://X.aws.tn4consulting.com` on EKS — one image built once and
+promoted unchanged, per `mfe-pot-platform/CLAUDE.md`'s "Runtime config,
+not build-time" section), so a single-origin field would have rejected
+every real EKS deployment.
+
+```json
+{
+  "version": 1,
+  "remotes": {
+    "job-bank-mfe": {
+      "kid": "job-bank-mfe-2026",
+      "publicKeyJwk": { "kty": "RSA", "n": "...", "e": "AQAB" },
+      "alg": "RS256",
+      "allowedOrigins": [
+        "http://job-bank-mfe.mfe-pot.local",
+        "https://job-bank-mfe.aws.tn4consulting.com"
+      ],
+      "provisioning": "first-party-ci"
+    }
+  }
+}
 ```
 
-That map is handed straight to `initFederation()`, whose `loadRemoteModule`
-result is threaded into `bootstrap()` and ultimately provided via
-`RemoteModuleLoaderContext` (`shared-federation-runtime`) for
-`RemoteRouteHost` and widget loaders to call. **No hash, signature, or
-integrity field exists anywhere in this path today** — Strapi's `Remote`
-content-type schema (`mfe-pot-platform/tools/cms/strapi/.../remote/schema.json`)
-only carries `name`/`url`/`routePrefix`/`version`, and `remoteEntry.json`
-itself (esbuild's Native Federation output) carries no hash of its own
-`shared`/`exposes` entries either. A compromised Strapi entry or a MITM'd
-`remoteEntry.json` response is effectively arbitrary code execution in the
-shell's origin, since Native Federation fetches and evaluates that JS
-directly (`RemoteRouteHost`'s `await loadRemoteModule(remoteName,
-'./Component')`).
+`trusted-remotes.dev.json` (a separate file, `http://localhost:*` origins)
+exists for local-dev entries but is currently empty and not wired to any
+real dev keypair — see "Known gaps" below.
 
-TODO.md originally scoped this as: each remote's CI emits a SHA-384 of its
-own `remoteEntry.json`, publishes it alongside the Strapi manifest entry,
-shells verify before load. That closes the gap **for remotes we build** —
-the hash's trustworthiness rests on "we trust our own CI to compute an
-honest hash and publish it over an authenticated channel," not on the
-remote's own runtime claim about itself. It does not close the gap for a
-remote built and operated by someone else: if the remote is the party
-computing and publishing its own hash, a malicious or compromised
-third-party remote just hashes its own malicious payload correctly. The
-architecture explicitly supports composing remotes a host doesn't build
-(`docs/architecture.md`'s "runtime federation only... loaded at runtime,
-never compiled into a host" — that's precisely what would let a province's
-MFE plug into `msca-shell` someday) — so a complete design needs a trust
-model that covers that case, even though no such remote exists in the
-family today.
+## Two stages, both required
 
-## Two-tier trust model
+Research during implementation surfaced that `initFederation()` itself
+fetches every remote's `remoteEntry.json` up front to reconcile the
+page-wide shared-singleton import map (`react`, `shared-ui-scds-core`,
+`shared-federation-runtime`) — a tampered `shared[]` block there could in
+principle hijack a shared singleton page-wide, before any
+`loadRemoteModule` call happens. A `loadRemoteModule`-only wrapper misses
+this entirely, so verification is split in two:
 
-**Tier 1 — first-party remotes** (`dashboard-mfe`, `job-bank-mfe`,
-`employment-insurance-mfe`, `life-events-mfe`). We own the CI end to end.
-Attacker model: MITM between a remote's real `remoteEntry.json` and the
-shell (compromised Strapi entry, DNS/TLS-strip, compromised ingress/CDN) —
-not the remote's own build process. Self-published SHA-384 + an
-authenticated publish channel is sufficient, matching TODO.md's original
-scope.
+- **Stage A** (`main.tsx`, both shells) — `resolveFederationManifest`
+  became `fetchCandidateManifest` + `verifyAndAdmitManifest`: for every
+  Strapi-supplied (or fallback) candidate, fetch `remoteEntry.json` +
+  sibling `.sig`, verify the signature, re-hash the fetched bytes, and
+  only admit passing entries to `initFederation()`. Runs **before**
+  `initFederation()` is called at all, which is why it can't use the
+  published library — `main.tsx` runs before Native Federation's
+  import-map/shared scope exists, so it can't import any bare specifier,
+  workspace or third-party (confirmed against both shells' own `CLAUDE.md`,
+  and against `apps/*/src/app/auth-flight.ts`'s existing precedent of
+  hand-rolling `crypto.subtle` for PKCE rather than importing a library).
+  Each shell carries its own hand-rolled, zero-import
+  `verify-manifest-signature.ts` doing the identical RS256-via-`crypto.subtle`
+  check the library does with `jose` — an accepted, tested-for-drift
+  duplication, the same shape `resolveFederationManifest` itself already
+  was (a hand-inlined copy of `shared-remote-registry`'s fuller logic).
+- **Stage B** (`App.tsx`, both shells) — wraps the Context-provided
+  `loadRemoteModule` with the real, published
+  `createVerifiedRemoteModuleLoader`, so every
+  `loadRemoteModule(remoteName, exposedModule)` call — both
+  `RemoteRouteHost`'s routed remotes and, in `msca-shell`,
+  `WIDGET_REGISTRY`-mediated cross-remote widget loading — hash-checks the
+  specific exposed chunk against Stage A's already-verified claims before
+  delegating to the real loader. Runs after `initFederation()`, so it has
+  no bare-specifier constraint and uses the published library directly.
 
-**Tier 2 — third-party provider remotes**. Not built by any repo in this
-family; hypothetical/future (no real example exists yet — this tier is
-designed ahead of need, the way `mfe-pot-job-bank-shell` proved the
-multi-host pattern before a second real host existed). Attacker model
-additionally includes the remote itself being malicious or compromised at
-its source, so the remote cannot be the root of trust for its own integrity
-claim. This needs three things a same-family design doesn't:
+## The dev/Helm escape hatch
 
-1. **A trust registry** — a platform-maintained allowlist of approved
-   provider identities, each with a registered public key and expected
-   origin, established through an out-of-band onboarding process (like
-   registering an OAuth client), never self-service and never writable by
-   the remote it describes.
-2. **Signed manifests** — each release is signed by the provider's own
-   private key; the shell verifies the signature against the *registered*
-   public key (from the trust registry, not from anything the manifest
-   fetch itself supplies) before trusting the declared hash(es), then
-   verifies the fetched `remoteEntry.json`/chunks against those hashes.
-   Signing the manifest (which itself references chunk hashes) is enough —
-   no need for a second, separate signature per chunk.
-3. **CSP as defense in depth** — a `script-src` origin allowlist scoped to
-   registered provider origins, so a verification bug isn't the only thing
-   standing between a compromised entry and code execution. Complementary
-   to, not a replacement for, (1)/(2); out of scope for this doc's
-   crypto-verification core but worth a follow-on item.
+`nx serve`'s dev server never signs anything (only the Docker build does),
+so unconditional strict verification would make every remote permanently
+unloadable in local dev. `ShellRuntimeConfig.allowUnverifiedRemotes`
+(`main.tsx`) follows the same runtime-config mechanism as everything else
+in this family: `true` in `devDefaults` (nx serve), `false` explicitly in
+each shell's Helm chart `values.yaml` for every real deployment — explicit
+rather than omitted, since an absent key would silently inherit the dev
+default in production too. `true` only ever logs a per-remote
+`console.warn` and still loads the remote unverified; it never blocks —
+blocking isn't this flag's job, unblocking local dev is.
 
-This is the same shape as existing prior art for "don't trust the mirror,
-trust a small pinned root" — TUF (The Update Framework) and Sigstore/cosign
-solve the same problem for package registries and container images
-respectively. Nothing here proposes adopting either wholesale; the point is
-the pattern (separate root of trust from content publisher), not the
-specific tooling, given this family's PoC scale.
+## A real bug found building this, not a design decision
 
-## Where the trust registry should *not* live
+`docker/build-push-action`'s `secrets:` input is line-oriented (one
+`key=value` pair per line). A genuinely multi-line value — a PEM private
+key — gets silently truncated at its first embedded newline, which cost
+two failed CI runs on `job-bank-mfe` before the real cause
+(`ERR_OSSL_ASN1_NOT_ENOUGH_DATA`, `importPKCS8` choking on a key cut off
+right after `-----BEGIN PRIVATE KEY-----`) showed up in the logs. Fixed by
+writing the key to a runner-local temp file first and passing it via
+`secret-files:` instead — every remote's `ci.yml` uses this from the
+start now, not the broken form.
 
-Strapi's existing `Remote` content type is the wrong place for Tier 2's
-trust anchors. Today it has public `find`/`findOne` access
-(`ensurePublicReadAccess(strapi, 'remote', ['find', 'findOne'])`) and is
-seeded create-only from `mfe-pot-platform/tools/cms/strapi/src/index.ts`'s
-hardcoded `REMOTES` array — a self-service directory of "here's where each
-remote currently lives," not a security boundary. Reusing it as the store
-for provider public keys would conflate the two: anyone who could get an
-entry created (or, per the "no analogue to `deploy-eks.sh`'s seeding
-pattern" finding — anyone who could influence the env vars a redeploy
-seeds from) could effectively self-register as trusted.
-
-Proposed instead, matching this family's existing PoC-scale conventions:
-a committed file, `trusted-providers.json` in `mfe-pot-platform` (structurally
-analogous to `platform-versions.json` — small, human-readable, one owning
-repo) — the actual root of trust, auditable via PR review the same way any
-other change to that repo is. Strapi can still mirror it into a read-only
-content type for convenient runtime lookup by both shells, but the
-mirrored copy is never the thing being trusted — the committed file is.
-This deliberately avoids repeating `platform-versions.json`'s known failure
-mode (manually-bumped, drifts silently — TODO.md documents it drifting for
-real today) for the *hash-propagation* side of Tier 1: that's a separate,
-already-flagged open question (see TODO.md's "Decide how the hash travels
-... without becoming another manually-maintained cross-repo sync point").
-For Tier 2's trust *registry* specifically, manual/reviewed changes are
-actually the right call, not a shortcut — who to trust at all is a
-human/policy decision, not something that should auto-sync from anywhere.
-
-## Design: verification flow
-
-**Tier 1 (self-published hash).**
-1. Each first-party remote's CI computes SHA-384 of its built
-   `remoteEntry.json` (and/or the `exposes` chunk files it references) as a
-   build step.
-2. The hash is published to Strapi's `Remote` entry for that remote, over
-   an authenticated channel (a Strapi API token scoped to write access on
-   `remote` — the public role today only has `find`/`findOne`; see
-   "Open decisions" below on write-path mechanics). This closes the
-   create-only-seed gap noted in research: the seed/update path needs to
-   become an upsert of `url`+`version`+`hash` together, not a create-once.
-3. Shell fetches the manifest (now `{ name, url, hash }` entries), fetches
-   `remoteEntry.json`, recomputes its hash, compares. Mismatch → treat like
-   any other remote-load failure (`RemoteErrorBoundary`'s existing
-   "temporarily unavailable" fallback), never execute.
-
-**Tier 2 (signed manifest + trust registry).**
-1. Provider signs their `remoteEntry.json` (which itself lists chunk
-   hashes) with their private key, out of band from this family's CI.
-2. Provider's identity, public key, and expected origin are already present
-   in `trusted-providers.json` from onboarding — not supplied at load time.
-3. Shell fetches the manifest entry, looks up the claimed provider identity
-   in the trust registry, verifies the signature against the *registered*
-   key (never a key embedded in the fetched payload itself — that would let
-   an attacker just supply their own key alongside their own signature).
-4. On success, proceed as Tier 1 (hash-verify the fetched content against
-   the now-trusted manifest); on any failure (unknown provider, bad
-   signature, origin mismatch), refuse to load.
-
-Both tiers converge on the same call site: verification wraps the raw
-`loadRemoteModule` function *before* it's placed into
-`RemoteModuleLoaderContext`, rather than living inside
-`shared-federation-runtime`'s existing `RemoteRouteHost`. That's the one
-place already common to both shells (per current research: `main.tsx` in
-each shell obtains `loadRemoteModule` from `initFederation()`'s result, then
-threads it into `bootstrap()`). Concretely, `shared-federation-runtime`
-would grow a new export — something like `createVerifiedRemoteModuleLoader
-(loadRemoteModule, registry)` — that both shells adopt in place of passing
-the raw federation-result loader straight through. `RemoteRouteHost` and
-the widget-loader path stay unchanged, since they already only depend on
-`useRemoteModuleLoader()`'s black-box function type.
-
-## Where new code would live (prospective — nothing built yet)
+## Where the code actually lives
 
 | What | Repo | Path |
 |---|---|---|
-| `trusted-providers.json` (Tier 2 root of trust) | `mfe-pot-platform` | repo root, alongside `platform-versions.json` |
-| `hash`/`signature` fields on `Remote` content type; upsert (not create-only) seeding; authenticated write role | `mfe-pot-platform` | `tools/cms/strapi/src/api/remote/`, `tools/cms/strapi/src/index.ts` |
-| `createVerifiedRemoteModuleLoader`, hash/signature-verification logic | `mfe-pot-platform` | `libs/shared/federation-runtime` (or a new `libs/shared/remote-integrity` if the crypto surface is big enough to warrant its own package) |
-| CI step: compute + publish SHA-384 of built `remoteEntry.json` | `mfe-pot-dashboard-mfe`, `mfe-pot-job-bank-mfe`, `mfe-pot-employment-insurance-mfe`, `mfe-pot-life-events-mfe` | each `.github/workflows/ci.yml` |
-| Adopt `createVerifiedRemoteModuleLoader` in place of the raw federation-result loader | `mfe-pot-msca-shell`, `mfe-pot-job-bank-shell` | each `apps/*-shell/src/main.tsx`/`bootstrap.tsx` |
-| CSP `script-src` allowlist (defense in depth, Tier 2) | `mfe-pot-msca-shell`, `mfe-pot-job-bank-shell` | Ingress/Helm chart or a response-header middleware — exact mechanism not yet chosen |
+| Verification library, signing/sync CLIs, trust registry | `mfe-pot-platform` | `libs/shared/remote-integrity` |
+| `.sig` CORS fix | `mfe-pot-platform` + all 4 remotes | `tools/docker/nginx.conf` |
+| Signing step (Dockerfile + CI) | all 4 remotes | `apps/<app>/Dockerfile`, `.github/workflows/ci.yml` |
+| Stage A (`verify-manifest-signature.ts`, hand-rolled) | both shells | `apps/<shell>/src/verify-manifest-signature.ts` |
+| Stage A wiring (verify-then-admit) | both shells | `apps/<shell>/src/main.tsx` |
+| Stage B wiring (`createVerifiedRemoteModuleLoader`) | both shells | `apps/<shell>/src/app/App.tsx`, `src/bootstrap.tsx` |
+| `allowUnverifiedRemotes: false` | both shells | `charts/<shell>/values.yaml` |
 
-## Recommended proof-of-concept scope, when picked up
+## Known gaps, not closed by this work
 
-Build Tier 1 first and prove it end to end on one remote (mirrors the
-family's existing prove-then-generalize precedent —
-`mfe-pot-job-bank-shell` proved the multi-host pattern before generalizing;
-`docs/plans/20260808-1800-backend-outage-resilience.md` recommends the same
-shape for its own scope). Tier 2 has no real consumer yet, so build it far
-enough to be *demoable* — a synthetic "trusted provider" entry (a remote we
-control, deliberately routed through the Tier 2 signature path instead of
-Tier 1) proves the mechanism without needing an actual external partner.
-Generalizing Tier 1 to all four remotes' CI, and finding/onboarding a real
-Tier 2 provider, are both future work past this PoC pass.
+- **Local dev (`nx serve`) has no real signed path** — `allowUnverifiedRemotes`
+  unblocks it by skipping verification entirely (warn-only), rather than
+  a genuine dev-signing flow against `trusted-remotes.dev.json` (still
+  empty). A follow-up, not solved here.
+- **Double-fetch TOCTOU window in Stage B** — `createVerifiedRemoteModuleLoader`
+  fetches a chunk once to hash it, then the real loader fetches it again.
+  Small window, accepted at this project's scale; closing it would mean
+  adopting es-module-shims' import-map `integrity` field (unconfirmed
+  against this stack's pinned version) or a Service Worker interception
+  layer.
+- **Page-wide shared-singleton-hijack risk (Stage A's original motivation)**
+  is architecturally plausible but not empirically proven against Native
+  Federation's real reconciliation algorithm with a live tampered
+  `shared[]` block — worth a dedicated test, not done as part of this pass.
+- **Key rotation/revocation** — no process beyond "new keypair, new `kid`,
+  PR to `trusted-remotes.json`, redeploy."
+- **CSP `script-src` allowlist** — flagged as complementary defense in
+  depth from the start, still untouched.
+- **A real third-party (non-first-party) provider** — no such remote
+  exists in the family; the single-mechanism design means onboarding one
+  is just another registry row (a manually-vetted `publicKeyJwk` +
+  `allowedOrigins`, `provisioning: "manual-partner-onboarding"`), not new
+  code — but that's never been exercised against a real external party.
 
-## Open decisions, explicitly not resolved here
+## History
 
-- **Signature algorithm** for Tier 2 — Ed25519 is the likely default
-  (small keys/signatures, no parameter-choice footguns) but not decided.
-- **Strapi write-path mechanics for Tier 1's hash** — API token scoped to
-  `remote` write access is the sketch above; exact auth mechanism (Strapi
-  API token vs. a small authenticated publish endpoint) not decided.
-- **Key rotation/revocation** for a Tier 2 trusted provider — not designed;
-  matters once a real provider exists, not before.
-- **CSP header design/delivery mechanism** — flagged as complementary and
-  necessary but intentionally not designed in this pass.
-- **Whether Strapi's current public write-adjacent seeding behavior needs
-  independent hardening** regardless of this design — related but separate
-  from remote-loading integrity specifically.
+Scoped 2026-08-10 as a same-family self-published-hash design (see git
+history of this file for the original two-tier sketch — Tier 1 first-party
+hash, Tier 2 hypothetical third-party signed manifest). Corrected
+2026-08-11, in conversation, to the single-mechanism design described
+above, once it became clear Tier 1's hash-only approach didn't actually
+defend against its own stated threat (a compromised Strapi entry).
+Implemented the same day: Phase 1 (job-bank-mfe/job-bank-shell) proved the
+mechanism end to end on a real `kind` deployment before Phase 2 generalized
+it to the other 3 remotes and `msca-shell`.

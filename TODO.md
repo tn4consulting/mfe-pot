@@ -260,47 +260,38 @@ per-app-role wiring point, the `propagateTraceHeaderCorsUrls` gotcha).
       All services should be HTTPS-only; add the same TLS block to
       `mfe-pot-platform/charts/grafana`'s `values-eks.yaml`/Ingress.
 
-## Federation remote-loading integrity — design only, not started
+## Federation remote-loading integrity — done (2026-08-11)
 
 Scoped 2026-08-10, prompted by a question about shell/remote trust
-boundaries; design broadened 2026-08-11 to also cover remotes from
-providers outside this family's control. Design doc:
-`docs/plans/20260811-1500-federation-remote-loading-integrity.md`.
-`mfe-pot-msca-shell`'s `main.tsx` fetches its federation manifest (remote
-names → `remoteEntry.json` URLs) from Strapi's `/api/remotes` at runtime
-and hands each URL straight to `initFederation()`/`loadRemoteModule` with
-no integrity check — `mfe-pot-job-bank-shell` follows the same pattern. A
-compromised Strapi entry or a MITM'd `remoteEntry.json` response is
-effectively arbitrary code execution in the shell's origin, not just
-tampered content, since Native Federation fetches and evaluates that JS
-directly.
+boundaries. `mfe-pot-msca-shell`'s/`mfe-pot-job-bank-shell`'s `main.tsx`
+used to fetch the federation manifest from Strapi's `/api/remotes` and
+hand each URL straight to `initFederation()`/`loadRemoteModule` with no
+integrity check — a compromised Strapi entry or a MITM'd `remoteEntry.json`
+response was effectively arbitrary code execution in the shell's origin.
+Full design/implementation writeup:
+`docs/plans/20260811-1500-federation-remote-loading-integrity.md` (rewritten
+post-implementation — the original design doc's two-tier sketch didn't
+survive contact with its own threat model; see that doc's "History"
+section).
 
-The design doc splits this into two tiers: **Tier 1**, self-published SHA-384
-for the 4 remotes we build ourselves (the original scope below); **Tier 2**,
-a platform-maintained trust registry + signed manifests for remotes built by
-providers we don't control (e.g. a province's MFE plugged into a shell) —
-a self-published hash doesn't help there, since a malicious/compromised
-third-party remote can honestly hash its own malicious payload.
+New `@tn4consulting/shared-remote-integrity` library (`mfe-pot-platform`)
+signs each remote's `remoteEntry.json` + exposed chunks (RS256 JWS) during
+its Docker build, and both shells verify the signature — against a trust
+registry that never travels over Strapi or any other network path shared
+with the thing being verified — before loading. All 4 remotes
+(`job-bank-mfe`, `dashboard-mfe`, `employment-insurance-mfe`,
+`life-events-mfe`) sign in CI; both shells (`job-bank-shell`, `msca-shell`)
+verify, confirmed green on real `kind` deployments (build → sign → verify
+→ load, not just unit tests). `allowUnverifiedRemotes` is the dev/Helm
+escape hatch (`nx serve` never signs anything) — `true` by dev default,
+explicitly `false` in every real deployment's `values.yaml`.
 
-- [ ] Tier 1: each remote build emits a SHA-384 hash of its own
-      `remoteEntry.json` (and/or exposed chunks), published alongside the
-      manifest entry (Strapi's `/api/remotes` schema, upsert not
-      create-only), verified by both shells before `loadRemoteModule`
-      executes the fetched code.
-- [ ] Tier 1: decide how the hash travels from a remote's own build/CI to
-      Strapi's seeded manifest data without becoming another
-      manually-maintained cross-repo sync point (`platform-versions.json`-
-      style drift is the failure mode to avoid).
-- [ ] Tier 2: `trusted-providers.json` root of trust (committed file in
-      `mfe-pot-platform`, analogous to `platform-versions.json`), signature
-      verification wrapping `loadRemoteModule` before it reaches
-      `RemoteModuleLoaderContext`, demoed against one synthetic trusted
-      provider since no real external provider exists yet.
-      Deliberately not started — real complexity (every one of the 4
-      remotes' CI needs to emit and publish a hash, kept in sync across
-      independently-deployed repos, plus a net-new signing/trust-registry
-      mechanism for Tier 2) for a PoC/demo project; worth doing as a
-      dedicated security-hardening pass rather than folded into other work.
+Known gaps, deliberately not closed by this pass (see the design doc's own
+"Known gaps" section for the full list): no real signed path for `nx serve`
+local dev, a small double-fetch TOCTOU window in the verified loader, no
+key rotation/revocation process, no CSP `script-src` allowlist yet, and no
+real external (non-family) provider has ever exercised the
+"manually-vetted registry entry" path, since none exists.
 
 ## Strapi content organization
 
