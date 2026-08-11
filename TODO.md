@@ -260,33 +260,47 @@ per-app-role wiring point, the `propagateTraceHeaderCorsUrls` gotcha).
       All services should be HTTPS-only; add the same TLS block to
       `mfe-pot-platform/charts/grafana`'s `values-eks.yaml`/Ingress.
 
-## Federation remote-loading integrity — not started
+## Federation remote-loading integrity — design only, not started
 
 Scoped 2026-08-10, prompted by a question about shell/remote trust
-boundaries. `mfe-pot-msca-shell`'s `main.tsx` fetches its federation
-manifest (remote names → `remoteEntry.json` URLs) from Strapi's
-`/api/remotes` at runtime and hands each URL straight to
-`initFederation()`/`loadRemoteModule` with no integrity check —
-`mfe-pot-job-bank-shell` presumably follows the same pattern. A compromised
-Strapi entry or a MITM'd `remoteEntry.json` response is effectively
-arbitrary code execution in the shell's origin, not just tampered content,
-since Native Federation fetches and evaluates that JS directly.
+boundaries; design broadened 2026-08-11 to also cover remotes from
+providers outside this family's control. Design doc:
+`docs/plans/20260811-1500-federation-remote-loading-integrity.md`.
+`mfe-pot-msca-shell`'s `main.tsx` fetches its federation manifest (remote
+names → `remoteEntry.json` URLs) from Strapi's `/api/remotes` at runtime
+and hands each URL straight to `initFederation()`/`loadRemoteModule` with
+no integrity check — `mfe-pot-job-bank-shell` follows the same pattern. A
+compromised Strapi entry or a MITM'd `remoteEntry.json` response is
+effectively arbitrary code execution in the shell's origin, not just
+tampered content, since Native Federation fetches and evaluates that JS
+directly.
 
-- [ ] Design Subresource Integrity (SHA-384) for federated remote loading:
-      each remote build emits a hash of its own `remoteEntry.json`
-      (and/or exposed chunks), the hash gets published alongside the
-      manifest entry (Strapi's `/api/remotes` schema, or the CI publish
-      step), and both shells verify it before `loadRemoteModule` executes
-      the fetched code.
-- [ ] Decide how the hash travels from a remote's own build/CI to Strapi's
-      seeded manifest data without becoming another manually-maintained
-      cross-repo sync point (`platform-versions.json`-style drift is the
-      failure mode to avoid).
+The design doc splits this into two tiers: **Tier 1**, self-published SHA-384
+for the 4 remotes we build ourselves (the original scope below); **Tier 2**,
+a platform-maintained trust registry + signed manifests for remotes built by
+providers we don't control (e.g. a province's MFE plugged into a shell) —
+a self-published hash doesn't help there, since a malicious/compromised
+third-party remote can honestly hash its own malicious payload.
+
+- [ ] Tier 1: each remote build emits a SHA-384 hash of its own
+      `remoteEntry.json` (and/or exposed chunks), published alongside the
+      manifest entry (Strapi's `/api/remotes` schema, upsert not
+      create-only), verified by both shells before `loadRemoteModule`
+      executes the fetched code.
+- [ ] Tier 1: decide how the hash travels from a remote's own build/CI to
+      Strapi's seeded manifest data without becoming another
+      manually-maintained cross-repo sync point (`platform-versions.json`-
+      style drift is the failure mode to avoid).
+- [ ] Tier 2: `trusted-providers.json` root of trust (committed file in
+      `mfe-pot-platform`, analogous to `platform-versions.json`), signature
+      verification wrapping `loadRemoteModule` before it reaches
+      `RemoteModuleLoaderContext`, demoed against one synthetic trusted
+      provider since no real external provider exists yet.
       Deliberately not started — real complexity (every one of the 4
       remotes' CI needs to emit and publish a hash, kept in sync across
-      independently-deployed repos) for a PoC/demo project; worth doing as
-      a dedicated security-hardening pass rather than folded into other
-      work.
+      independently-deployed repos, plus a net-new signing/trust-registry
+      mechanism for Tier 2) for a PoC/demo project; worth doing as a
+      dedicated security-hardening pass rather than folded into other work.
 
 ## Strapi content organization
 
