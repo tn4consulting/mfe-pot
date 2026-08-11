@@ -96,30 +96,21 @@ there's been zero coordination/governance tooling — see the design doc for
 the full survey. `@tn4consulting/shared-platform-standards` (drift check,
 synced `PLATFORM_STANDARDS.md`, shared ESLint/Jest config,
 `platform-critical`-labelled-PR CI backstop) is now built, rolled out to all
-6 app repos, and published as `0.1.0`.
+6 app repos, and published as `0.2.0` — the version bump alone confirms the
+one-time GitHub Actions access grant its initial `0.1.0` publish needed is
+holding, no longer an open risk. `mfe-pot-platform` also picked up the
+general `nx affected` lint/test/build workflow (`ci.yml`) its own
+`CLAUDE.md` had long claimed existed, and the real version drift
+`check-platform-versions` first surfaced (stale `shared-ui-scds-core`/
+`shared-federation-runtime` pins in most app repos) has been fixed — all 6
+app repos now match `platform-versions.json`'s `sharedUiScdsCore: 1.3.0`/
+`sharedFederationRuntime: 2.1.0`.
 
 - [ ] Ownership map (repo table in `README.md`/`CLAUDE.md`), CODEOWNERS per
       repo, CONTRIBUTING.md per repo, PR/issue templates, the
       breaking-change/deprecation protocol (14-day adoption window before
       `platform-critical` CI backstop trips — see the design doc's item 4).
       All design-only so far.
-- [ ] `mfe-pot-platform` still has no general lint/test/build CI workflow —
-      only `publish-shared-packages.yml`, `deploy-eks.yml`, and a new
-      `version-check.yml` (`pnpm run check:versions`) exist, despite its own
-      `CLAUDE.md` once claiming a single `nx affected` workflow runs there.
-- [ ] Real version drift found by the new `check-platform-versions` tool,
-      not yet fixed: 5 of 6 app repos are on `shared-ui-scds-core@1.1.0`
-      against `platform-versions.json`'s pinned `1.2.0`, and
-      `mfe-pot-msca-shell`/`mfe-pot-job-bank-shell` are also on
-      `shared-federation-runtime@1.0.2` against the pinned `1.0.1`. Each
-      repo's new `check:versions` CI step will fail until addressed (a
-      version bump is a separate decision from the rollout itself).
-- [ ] Grant `mfe-pot-platform`'s Actions access to
-      `@tn4consulting/shared-platform-standards` on GitHub (package →
-      Settings → Actions access → add `mfe-pot-platform`) before its next
-      version bump — CI-driven publishing 403s without this manual,
-      one-time grant, same as it did for the initial `0.1.0` publish (worked
-      around manually that time).
 
 ## Backend-outage resilience — design only, not started
 
@@ -253,12 +244,9 @@ Full design, gotchas hit, and exactly what was/wasn't verified live:
 `mfe-pot-platform/CLAUDE.md`'s new "Observability: OpenTelemetry" section is
 the durable architecture reference (federation-sharing decision,
 per-app-role wiring point, the `propagateTraceHeaderCorsUrls` gotcha).
-
-- [ ] Grafana's public Ingress (`grafana.aws.tn4consulting.com`) is served
-      over plain HTTP, not HTTPS — every other public Ingress host in the
-      family terminates TLS via cert-manager (`letsencrypt-staging` for now).
-      All services should be HTTPS-only; add the same TLS block to
-      `mfe-pot-platform/charts/grafana`'s `values-eks.yaml`/Ingress.
+Grafana's public Ingress now terminates TLS via cert-manager
+(`letsencrypt-prod`) same as every other public Ingress host in the
+family — the earlier plain-HTTP gap here is closed.
 
 ## Federation remote-loading integrity — done (2026-08-11)
 

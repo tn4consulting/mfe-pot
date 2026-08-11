@@ -108,6 +108,26 @@ the route needs via Native Federation's `loadRemoteModule`. Editing a
 **no rebuild** — this is the mechanism that makes the family's independent
 deployability real, not just a build-time convenience.
 
+**Remote-loading integrity check.** Because Strapi's directory is a
+runtime, editable data source rather than a build-time constant, a
+compromised entry or a MITM'd `remoteEntry.json` would otherwise be
+arbitrary code execution in the host's own origin. Both shells verify
+every remote in two stages before trusting it: **Stage A** (`main.tsx`,
+before `initFederation()` runs) fetches each candidate's
+`remoteEntry.json` + sibling `.sig`, checks the RS256 signature against a
+trust registry that never travels over Strapi or any other path shared
+with the thing being verified, and only admits passing entries — this is
+what stops a tampered `shared[]` singleton block from hijacking the
+page-wide import map, not just a tampered component. **Stage B**
+(`App.tsx`) wraps `loadRemoteModule` itself so every individual exposed
+chunk is hash-checked against Stage A's verified claims too. Each of the 4
+remotes signs its own manifest + exposed chunks in CI
+(`@tn4consulting/shared-remote-integrity`); `allowUnverifiedRemotes` is an
+explicit, warn-only escape hatch for `nx serve` local dev (`true` by dev
+default, `false` in every real deployment's `values.yaml`) — see
+`docs/plans/20260811-1500-federation-remote-loading-integrity.md` for the
+full mechanism, threat model, and known gaps.
+
 **Sign-in.** A full authorization-code + PKCE flow against `mock-idp`: the
 shell redirects to `mock-idp`'s `/authorize`, gets back a one-time code,
 exchanges it at `/token` for an RS256-signed JWT, and stores the resulting
@@ -183,6 +203,10 @@ the index:
 11. **Governance as a published, versioned artifact** — `shared-platform-
     standards` runs version-drift and BFF-boundary checks in CI, rather
     than living in a doc nobody re-reads.
+12. **Shell-mediated trust doesn't extend to code loading either** —
+    the same "every BFF/remote verifies its own auth" posture (decision 6)
+    now also covers *what code gets loaded*: a signed manifest, checked
+    against an out-of-band trust registry, not just a same-origin fetch.
 
 ## Where enforcement actually lives
 
@@ -194,6 +218,7 @@ the index:
 | Zero-downtime deploys / node-failure survival | Rolling-update strategy + soft anti-affinity + opt-in `PodDisruptionBudget`, both Helm library charts — live-proved on `employment-insurance-mfe`, generalized after auditing each remaining chart's actual statefulness (`mock-idp` deliberately excluded — see `mfe-pot-platform/CLAUDE.md`'s "Design principles") |
 | Session state survives a pod restart | `@tn4consulting/shared-session-cache` (Redis), all 3 BFFs |
 | Federation-singleton drift | No compile-time check exists — this is the one real gap; see `mfe-pot-platform/CLAUDE.md`'s "Strong contracts" section |
+| Remote code isn't tampered with before it executes | `@tn4consulting/shared-remote-integrity` — signed `remoteEntry.json` + exposed chunks, verified against a committed trust registry before `loadRemoteModule`, both shells; `allowUnverifiedRemotes: false` in every real deployment |
 
 ## Where to go deeper
 
